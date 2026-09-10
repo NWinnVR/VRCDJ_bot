@@ -371,7 +371,7 @@ def api_dj_refresh():
 
     def _do():
         try:
-            n = dj_sheet.refresh_dj_list()
+            n = dj_sheet.refresh_dj_list(bot_config.get_sheet_url())
             botlog.log("dj_refresh", detail=f"dashboard → {n} DJs loaded")
             return {"ok": True, "count": n}
         except Exception as exc:

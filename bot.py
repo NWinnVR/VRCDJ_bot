@@ -356,7 +356,7 @@ class Bot(discord.Client):
                 if is_dj_stale(days):
                     t0 = time.time()
                     try:
-                        n = await asyncio.to_thread(refresh_dj_list)
+                        n = await asyncio.to_thread(refresh_dj_list, bot_config.get_sheet_url())
                         print(f"[bot] DJ auto-refresh: {n} DJs "
                               f"({botlog.fmt_duration(time.time() - t0)})")
                         botlog.log("dj_auto_refresh",
@@ -540,7 +540,7 @@ class Bot(discord.Client):
     async def cmd_dj_refresh(self, ctx: discord.Interaction):
         await ctx.response.send_message("🔄 Re-pulling the DJ sheet…")
         try:
-            n = await asyncio.to_thread(refresh_dj_list)
+            n = await asyncio.to_thread(refresh_dj_list, bot_config.get_sheet_url())
             botlog.log("dj_refresh", who=ctx.user.name, detail=f"{n} DJs loaded")
             await ctx.edit_original_response(
                 content=f"✅ DJ list refreshed — **{n}** DJs loaded.")

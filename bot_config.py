@@ -29,8 +29,10 @@ CONFIG_PATH = Path(__file__).parent / "bot_config.json"
 # ---------------------------------------------------------------------------
 DEFAULTS: dict = {
     # The public DJ master-list (Google Sheet → CSV).
-    # Anyone with the link can view; no API key needed.
-    "sheet_url": "https://docs.google.com/spreadsheets/d/1YQxDB1o32VZds_e5UAyYvBjK5Ww7zeiqtxiUtR38oqQ/export?format=csv",
+    # Uses the "publish to web" CSV link (…/d/e/<PUB_ID>/pub?output=csv) —
+    # the one that actually serves CSV without a 400. Anyone with the link
+    # can view; no API key needed.
+    "sheet_url": "https://docs.google.com/spreadsheets/d/e/2PACX-1vSDmzW0zDXiGPDGDCCBdNYcna-zvd7EJwWLMRdzOobNmpdHQs5v6ayZG2AOuH8gWICjwMpc5iwabssq/pub?output=csv",
     # Re-pull the sheet every N days (the sheet changes ~weekly).
     "dj_refresh_days": 3,
     # Master kill-switch. True = bot answers; False = bot says "switched off".
@@ -68,6 +70,10 @@ def save_config(cfg: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def get_sheet_url() -> str:
+    # env override wins (portable, no JSON editing), then the config default.
+    env = os.environ.get("DJ_SHEET_URL", "").strip()
+    if env:
+        return env
     return str(load_config().get("sheet_url", DEFAULTS["sheet_url"])).strip()
 
 

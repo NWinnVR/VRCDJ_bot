@@ -18,7 +18,10 @@ bot_activity.jsonl
 bot_log.jsonl
 bot_stdout.log
 bot_stderr.log
+_bot_live.log
 dj_list_cache*
+DJ_LIST.json
+dj_meta.json
 *.cache
 
 # ── Python ──
