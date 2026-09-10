@@ -1,0 +1,45 @@
+# ─────────────────────────────────────────────────────────────
+# VRCDJ_bot — .gitignore
+# Anything here is a SECRET or a MACHINE-LOCAL artifact and must
+# NEVER be committed to the public repo.
+# ─────────────────────────────────────────────────────────────
+
+# ── SECRETS (the Discord token lives here — the most important line) ──
+bot.env
+.env
+*.env.local
+dashboard_password.json
+
+# ── runtime state / logs (per-machine, regenerates on boot) ──
+bot_state.json
+bot_config.json
+bot_lifecycle.json
+bot_activity.jsonl
+bot_log.jsonl
+bot_stdout.log
+bot_stderr.log
+dj_list_cache*
+*.cache
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ── virtualenv (machine-local; recreate with `python -m venv venv`) ──
+venv/
+.venv/
+env/
+
+# ── Windows ──
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ── editor / OS scratch ──
+.idea/
+.vscode/
+*.swp
+*.tmp

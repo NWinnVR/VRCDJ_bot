@@ -1,0 +1,353 @@
+# 🎧 VRCDJ_bot
+
+**A portable, open-source Discord bot for VRChat DJ communities.**
+
+Look up DJs from a shared master list, expand any VRCDN URL into all its
+link versions, and build DJ event time-slots in one message — no LLM, no
+accounts, no cloud, just your own Discord bot. Built to be self-hosted by
+**any community** that wants the same tools the author uses.
+
+> **v1.0** — versioning policy: the *second* number goes up with every add or
+> fix (`1.0 → 1.1 → 1.2`); the *first* number only changes on a major overhaul.
+> See [Releases](#releases--updating) and [`version.py`](version.py).
+
+---
+
+## What it does
+
+A small set of **slash commands** aimed at running VRChat DJ events:
+
+| Command | What it does |
+|---|---|
+| `/dj <name>` | Look up one or more DJs (comma-separated) — pulls their Twitch / VRCDN links from the master list. |
+| `/vrcdn <url or name>` | Take one VRCDN URL (RTSP / MPEG-TS) or a streamer name and expand it into **all three** link versions (RTSP, MPEG-TS, preview). |
+| `/djlineup` | Label an event's time-slot lines **A–Z** so DJs sign up by letter, not by time. |
+| `/timeslots` | Generate a full DJ time-slot block from a start time, day, and slot count — the bot does the timezone math (DST-aware). |
+| `/status` | Bot availability, DJ-list freshness, and the version. |
+| `/help` | List every command. |
+| `/on` · `/off` | Master kill-switch: pause or resume the bot answering. |
+| `/dj-refresh` | Re-pull the DJ list from the Google Sheet right now. |
+
+There is also an **event auto-lineup**: post a line of time-slots (with the
+`<t:…:t>` timestamp format) in a bound channel and the bot labels them A–Z
+automatically.
+
+**What it is *not*:** no AI / LLM, no prompt generation, no host-matching, no
+social-post drafting. It does exactly the DJ + time-slot job and nothing
+more — which is what makes it safe, portable, and cheap to run.
+
+---
+
+## Features
+
+- 🔒 **Portable & self-hosted.** One folder, one `venv`, two dependencies
+  (`discord.py` + `Flask`). Runs on Windows (primary), macOS, or Linux.
+  No cloud, no API keys, no LLM.
+- 🌐 **LAN web dashboard** (dark theme) to watch and control the bot from
+  your network: start / stop / restart, toggle the kill-switch, re-pull the
+  DJ list, view the live activity log, and **check for & apply updates**.
+- ♻️ **Watchdog.** The dashboard keeps the bot alive — if it crashes, it's
+  restarted automatically.
+- 🔐 **Secure by default.** Password-gated dashboard, CSRF tokens on every
+  state change, rate-limited login, secure headers, no shell-injection
+  surface, and the Discord token **never leaves `bot.env`** (git-ignored).
+- 🗣 **Parallel-safe.** A duplicate-instance guard stops a second copy of the
+  *same* bot from starting (so you can't double-post) — while still letting
+  a *different* bot run alongside it.
+- 📈 **Versioned.** One source of truth for the version, shown in the
+  dashboard and used for GitHub Releases.
+
+---
+
+## Requirements
+
+- **Python 3.10 or newer** (3.11/3.12/3.13 all fine).
+- A **Discord bot application** (free, see [Setup](#1-create-your-discord-bot)).
+- Outbound internet access (Discord gateway + the public DJ Google Sheet).
+- That's it. Only `discord.py` and `Flask` are installed.
+
+---
+
+## Quick start
+
+```text
+1.  Install Python 3.10+ (Windows: tick "Add python.exe to PATH").
+2.  Get this folder onto the machine that will run the bot.
+3.  Windows:  double-click  install.bat        (creates venv + deps)
+    macOS/Lin: ./run.sh                          (creates venv + deps)
+4.  Edit  bot.env  → paste your DISCORD_BOT_TOKEN.
+5.  Windows:  double-click  run_dashboard.bat   (starts dashboard + bot)
+    macOS/Lin: ./run.sh
+6.  Open the printed LAN URL in a browser, sign in, and you're live. 🎧
+```
+
+That's the whole setup. Everything after that is optional.
+
+---
+
+## Detailed setup
+
+### 1. Create your Discord bot
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
+   → **New Application** → give it any name (e.g. `VRCDJ_bot`).
+2. Open the **Bot** tab → **Reset Token** → copy the token.
+   - This token is **secret**. Anyone with it can control your bot.
+   - You'll paste it into `bot.env` in a moment. It is never uploaded anywhere.
+3. Still on the **Bot** tab, enable the **Message Content Intent**
+   (required for the event auto-lineup). Leave voice intents off.
+4. Open the **OAuth2** tab → **URL Generator**:
+   - Scopes: `bot`
+   - Bot Permissions: `Send Messages`, `Embed Links`,
+     (and `Read Message History` if you want the bot to see the channel it
+     auto-lineups in).
+5. Copy the generated URL, open it in a browser, and **invite the bot** to
+   your server.
+
+> **Who can use the commands?** By default, every member of the server can run
+> the read-only commands (`/dj`, `/vrcdn`, `/djlineup`, `/timeslots`,
+> `/status`, `/help`). The *control* commands (`/on`, `/off`, `/dj-refresh`)
+> are restricted in the Developer Portal under **Application Commands →
+> Permissions** (set them to your staff role) — or just don't assign them to
+> the server. The bot itself has no hard-coded staff list, so Discord is the
+> single place you control access.
+
+### 2. Install
+
+**Windows**
+
+```bat
+install.bat
+```
+
+**macOS / Linux**
+
+```bash
+./run.sh          # first run does the setup for you
+```
+
+Both create a `venv/` and install `discord.py` + `Flask`. If you'd rather do
+it by hand:
+
+```bash
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt    # Windows: venv\Scripts\pip
+```
+
+### 3. Configure
+
+Open `bot.env` (created from `bot.env.example` by the install) and add your
+token:
+
+```env
+DISCORD_BOT_TOKEN=your-token-here
+# optional:
+DASHBOARD_PASSWORD=a-long-random-password
+# DASHBOARD_PORT=8720
+```
+
+- `DISCORD_BOT_TOKEN` — **required**. From step 1.2.
+- `DASHBOARD_PASSWORD` — optional. If blank, the dashboard prints a random
+  one **once** on first start. Set your own for a server.
+- `DASHBOARD_PORT` — optional, default `8720`.
+
+### 4. Run
+
+**Windows** → double-click `run_dashboard.bat`.
+**macOS / Linux** → `./run.sh`.
+
+You'll see:
+
+```
+[dashboard] VRCDJ_bot v1.0
+[dashboard] Dashboard: http://192.168.x.x:8720
+[bot] ready as YourBot#1234 — 9 commands synced (v1.0)
+[bot] DJ list: 402 entries — ...
+```
+
+Open `http://192.168.x.x:8720` (your LAN IP) in a browser on any device on the
+network, sign in with the password, and you have the live dashboard.
+
+> **Just the bot, no dashboard?** Use `run_bot.bat` (or
+> `venv/bin/python bot.py`).
+
+---
+
+## The DJ master list
+
+The bot reads its DJ list from a **public Google Sheet** ("anyone with the
+link can view") and downloads it as CSV — **no API key needed**. The default
+sheet is the community master list baked into the code.
+
+To point the bot at **your own** sheet (your community's DJs):
+
+1. Make your Google Sheet shareable with "Anyone with the link → Viewer".
+2. Set `DJ_SHEET_URL` in `bot.env` to your sheet's CSV export link:
+   `https://docs.google.com/spreadsheets/d/<YOUR_SHEET_ID>/export?format=csv`
+   (or the `/e/<ID>/pub?output=csv` form — both are supported).
+3. Restart, or hit **Re-pull the DJ sheet** on the dashboard.
+
+Expected columns (case-insensitive, extra columns ignored): `Name`, plus any
+of `Twitch`, `VRC`, `VRCDN`, `RTSP`, `MPEG`, `Preview`. The bot strips
+labels and normalizes URLs, so a human-friendly sheet is fine.
+
+The list is cached locally and auto-refreshed in the background (it will
+re-pull if it goes stale).
+
+---
+
+## The dashboard (LAN web portal)
+
+Dark-themed, mobile-friendly, password-gated. Sections:
+
+- **Bot process** — running / stopped, PID, uptime, and Start / Stop /
+  Restart buttons (the watchdog keeps it alive).
+- **DJ list & lookups** — the master **ON/OFF kill-switch**, DJ count,
+  list freshness, and a one-click **Re-pull** button.
+- **Updates & version** — current version, **Check for updates** (queries
+  GitHub Releases), and **Update & restart** (pulls the latest code and
+  restarts the bot — no manual file copying).
+- **Activity log** — recent lookups, refreshes, toggles, and errors.
+
+The dashboard binds to `0.0.0.0` so it's reachable across your local network.
+**Keep it there** — don't expose the dashboard port to the public internet.
+Use the strong password; it's the gate to the controls.
+
+---
+
+## Releasing & updating
+
+### How versioning works
+
+The version lives in exactly one place: [`version.py`](version.py)
+(`VERSION = "1.0"`). It flows to the dashboard, the bot's startup log, and
+GitHub Releases.
+
+- **Minor** (default): every add or fix bumps the *second* number:
+  `1.0 → 1.1 → 1.2 …`
+- **Major**: the *first* number, `1.x → 2.0`, only on a big overhaul — and only
+  when the maintainer decides it.
+
+### Cutting a release
+
+From the project folder:
+
+```bash
+venv/bin/python release.py --message "Add /foo command"   # minor bump → 1.1
+venv/bin/python release.py --dry-run                       # preview, change nothing
+venv/bin/python release.py --major                         # 1.x → 2.0 (rare)
+```
+
+`release.py` bumps `version.py`, commits, tags `v<new>`, and (if the `gh` CLI
+and network are available) creates a **GitHub Release** so it shows up in the
+Releases section and is downloadable. See
+[GitHub Releases](https://github.com/NWinnVR/VRCDJ_bot/releases).
+
+### Updating a running bot
+
+On the machine where the bot runs, either:
+
+- click **Check for updates → Update & restart** on the dashboard, or
+- `git pull && restart` (or just re-run the launcher).
+
+Because it's a public repo, the update path is plain `git pull` — no private
+file copying, no zips.
+
+---
+
+## Security notes
+
+This is a **public** repo, and the bot typically runs on a home server — so
+it's built to be hard to abuse from outside:
+
+- **Secrets never leave the box.** The Discord token lives only in `bot.env`,
+  which is **git-ignored**. `bot.env.example` (committed) has no secrets.
+- **No injection surface.** All subprocess calls (git, python) use argument
+  lists with `shell=False`. Nothing user-supplied is ever shell-interpolated.
+- **Dashboard is gated.** Password login (PBKDF2), CSRF tokens on every
+  state-changing POST, per-IP login rate limiting, and secure headers
+  (CSP, `X-Frame-Options: DENY`, `nosniff`). Unauthenticated API calls get a
+  JSON 401, not an HTML page.
+- **Binds LAN by default.** `0.0.0.0` for your local network; keep the port
+  closed to the internet in your firewall.
+- **Duplicate-instance guard.** A second copy of the *same* bot refuses to
+  start (exit 77), so you can't double-run and spam a server. A *different*
+  bot (e.g. your other project) can run alongside it fine.
+- **No inbound ports for the bot itself.** It only makes outbound connections
+  (Discord gateway, the public Google Sheet). The only listening port is the
+  dashboard, and only if you start it.
+
+**You are responsible for** the strength of `DASHBOARD_PASSWORD` and for
+keeping the dashboard port off the public internet.
+
+---
+
+## Project layout
+
+```
+VRCDJ_bot/
+├── bot.py               # the Discord bot (DJ + time-slot commands, no LLM)
+├── dashboard.py         # the Flask LAN dashboard + bot process manager
+├── version.py           # the version number (single source of truth)
+├── release.py           # bump + tag + GitHub release tooling
+├── scrub.py             # output sanitizer (no ANSI / paths / control bytes)
+├── envload.py           # tiny dependency-free .env loader
+│
+├── dj_sheet.py          # read/refresh the DJ master list (public CSV)
+├── timeslots.py         # time-slot block builder (DST-aware)
+├── djlineup.py          # A–Z slot labeling
+├── vrcdn.py             # VRCDN URL parsing / expansion
+├── event_post.py        # event auto-lineup logic
+├── discord_send.py      # chunked Discord message sender
+├── bot_config.py        # config (sheet URL, defaults)
+├── bot_state.py         # runtime state + duplicate-instance guard
+├── botlog.py            # structured activity log
+├── repo_version.py      # git commit stamping
+│
+├── templates/           # the dashboard HTML (dark theme)
+├── bot.env.example      # copy to bot.env, fill in your token  (no secrets)
+├── .gitignore           # keeps bot.env + state + venv out of git
+├── requirements.txt     # discord.py + Flask (that's all)
+├── install.bat          # Windows one-time setup
+├── run_dashboard.bat    # Windows: start dashboard + bot  (primary)
+├── run_bot.bat          # Windows: start bot only
+└── run.sh               # macOS / Linux: setup + start
+```
+
+---
+
+## Running in parallel with another bot
+
+Yes — this is a whole separate application with its own token, its own state
+files, and its own dashboard port. Run it next to any other Discord bot you
+have. The only guard is against a *second copy of VRCDJ_bot itself*
+(duplicate-instance), which is what you want.
+
+If two bots would use the **same dashboard port**, set a different
+`DASHBOARD_PORT` for one of them.
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `DISCORD_BOT_TOKEN missing` | Add your token to `bot.env` and restart. |
+| Bot connects but commands don't appear | Wait up to ~60 s for global command sync; check the Developer Portal that the bot is invited and the Message Content Intent is on. |
+| Dashboard won't open from another device | Make sure both devices are on the same network; use the LAN IP (not `localhost`); check your firewall allows the port. |
+| `port already in use` | Set a different `DASHBOARD_PORT` in `bot.env`. |
+| `another VRCDJ_bot is already running (PID …)` | You started a second copy of the *same* bot. Stop the first one, or you're fine — the guard did its job. |
+| `/dj` finds nobody | Run `/dj-refresh`, and confirm `DJ_SHEET_URL` points at a viewable sheet with a `Name` column. |
+| PyNaCl warning on start | Harmless — voice support is an optional extra this bot doesn't use. |
+
+---
+
+## License
+
+MIT — do whatever you want with it; it's yours to fork and run for your own
+community. See [LICENSE](LICENSE).
+
+## Credits
+
+Built for the VRChat DJ scene. If you run it for your community and it's
+useful, a shout-out is all that's asked. 🎧

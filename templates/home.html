@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VRCDJ_bot — dashboard</title>
+<style>
+:root{
+  --bg:#0d1117; --panel:#161b22; --panel2:#1b212b; --border:#2b313a;
+  --fg:#e6edf3; --muted:#8b949e; --faint:#6e7681;
+  --accent:#4d9fff;            /* blue  — bot process */
+  --teal:#4dd0c4;              /* teal  — DJ list / lookups */
+  --good:#3fb950; --bad:#f85149; --warn:#d29922; --violet:#bc8cff;
+  --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:system-ui,"Segoe UI",Roboto,sans-serif;font-size:15px;line-height:1.5}
+.wrap{max-width:960px;margin:0 auto;padding:22px 20px 60px}
+
+/* header */
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:6px 2px 18px;border-bottom:1px solid var(--border);margin-bottom:20px}
+.logo{font-size:24px;font-weight:800;letter-spacing:.4px}
+.logo span{color:var(--accent)}
+.ver{font-family:var(--mono);font-size:13px;color:var(--fg);
+  background:var(--panel2);border:1px solid var(--border);
+  padding:3px 9px;border-radius:999px}
+.commit{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.grow{flex:1}
+.lan{font-family:var(--mono);font-size:12px;color:var(--teal);
+  background:rgba(77,208,196,.08);border:1px solid rgba(77,208,196,.25);
+  padding:3px 9px;border-radius:999px;text-decoration:none}
+.lan:hover{filter:brightness(1.15)}
+.logout{font-size:13px;color:var(--muted);background:none;border:1px solid var(--border);
+  border-radius:8px;padding:6px 12px;cursor:pointer;text-decoration:none}
+.logout:hover{color:var(--bad);border-color:var(--bad)}
+
+/* section cards */
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;
+  padding:18px 20px;margin-bottom:18px}
+.card h2{margin:0 0 4px;font-size:15px;font-weight:700;display:flex;align-items:center;gap:9px}
+.card .desc{color:var(--muted);font-size:12.5px;margin:0 0 16px}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+
+/* status row */
+.status-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.pill{font-family:var(--mono);font-size:13px;font-weight:700;
+  padding:5px 13px;border-radius:999px;letter-spacing:.4px}
+.pill.run{color:#04121f;background:var(--good)}
+.pill.stop{color:#160404;background:var(--bad)}
+.pill.wait{color:#140d00;background:var(--warn)}
+.kv{display:flex;flex-direction:column;min-width:90px}
+.kv b{font-size:12px;color:var(--muted);font-weight:600}
+.kv span{font-family:var(--mono);font-size:15px}
+
+/* buttons */
+.btns{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}
+.btn{font-size:13.5px;font-weight:600;padding:9px 15px;border-radius:8px;
+  border:1px solid var(--border);background:var(--panel2);color:var(--fg);
+  cursor:pointer}
+.btn:hover{filter:brightness(1.12)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--accent);color:#04121f;border-color:transparent}
+.btn.good{background:var(--good);color:#04121f;border-color:transparent}
+.btn.bad{background:var(--bad);color:#160404;border-color:transparent}
+.btn.warn{background:var(--warn);color:#140d00;border-color:transparent}
+
+/* toggle switch */
+.switch{position:relative;width:52px;height:28px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:#30363d;border-radius:999px;
+  transition:.2s;cursor:pointer;border:1px solid var(--border)}
+.slider:before{content:"";position:absolute;height:20px;width:20px;left:3px;top:3px;
+  background:#c9d1d9;border-radius:50%;transition:.2s}
+.switch input:checked + .slider{background:var(--teal);border-color:transparent}
+.switch input:checked + .slider:before{transform:translateX(24px);background:#04121f}
+.toggle-row{display:flex;align-items:center;gap:14px}
+.toggle-state{font-family:var(--mono);font-weight:700;font-size:15px}
+
+/* update block */
+.upd{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.upd .cur{font-family:var(--mono);font-size:15px}
+.upd .arrow{color:var(--muted)}
+.upd .latest{font-family:var(--mono);font-size:15px}
+.upd .latest.new{color:var(--warn)}
+.upd .latest.ok{color:var(--good)}
+.upd-msg{font-size:12.5px;color:var(--muted);margin-top:10px;min-height:16px}
+
+/* log */
+.log{background:#0b0e13;border:1px solid var(--border);border-radius:8px;
+  padding:12px 14px;max-height:280px;overflow:auto;font-family:var(--mono);
+  font-size:12.5px;line-height:1.7;white-space:pre-wrap}
+.log .ts{color:var(--faint)}
+.log .err{color:var(--bad)}
+.log .warn{color:var(--warn)}
+.log .good{color:var(--good)}
+.log .info{color:var(--teal)}
+
+/* footer */
+footer{margin-top:8px;color:var(--faint);font-size:12.5px;text-align:center}
+footer a{color:var(--muted);text-decoration:none}
+footer a:hover{color:var(--accent)}
+
+@media (max-width:560px){
+  .status-row,.toggle-row{flex-direction:column;align-items:flex-start}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">🎧 VRCDJ<span>_bot</span></div>
+    <div class="ver">v{{ version }}</div>
+    <div class="commit" id="commit">commit: {{ commit }}</div>
+    <div class="grow"></div>
+    <a class="lan" id="lan" href="{{ lan_url }}" title="Open on this device / LAN">📡 {{ lan_url }}</a>
+    <a class="logout" href="{{ url_for('logout') }}">sign out</a>
+  </header>
+
+  <!-- BOT PROCESS (blue) -->
+  <div class="card">
+    <h2><span class="dot" style="background:var(--accent)"></span>Bot process</h2>
+    <p class="desc">The Discord bot runs as a child of this dashboard. If it ever
+      crashes, a watchdog restarts it automatically.</p>
+    <div class="status-row">
+      <div class="pill wait" id="bot-pill">…</div>
+      <div class="kv"><b>PID</b><span id="bot-pid">—</span></div>
+      <div class="kv"><b>Uptime</b><span id="bot-uptime">—</span></div>
+      <div class="kv"><b>State</b><span id="bot-state">—</span></div>
+    </div>
+    <div class="btns">
+      <button class="btn good"   id="b-start">▶ Start</button>
+      <button class="btn bad"    id="b-stop">⏹ Stop</button>
+      <button class="btn"        id="b-restart">↻ Restart</button>
+    </div>
+  </div>
+
+  <!-- DJ LIST / LOOKUPS (teal) -->
+  <div class="card">
+    <h2><span class="dot" style="background:var(--teal)"></span>DJ list &amp; lookups</h2>
+    <p class="desc">The master kill-switch. When ON, <code>/dj</code>, <code>/vrcdn</code>,
+      <code>/djlineup</code>, <code>/timeslots</code> and the event auto-lineup all answer.</p>
+    <div class="toggle-row">
+      <label class="switch">
+        <input type="checkbox" id="dj-toggle" data-csrf="{{ csrf }}">
+        <span class="slider"></span>
+      </label>
+      <span class="toggle-state" id="dj-state">…</span>
+      <div class="grow"></div>
+      <div class="kv"><b>DJs loaded</b><span id="dj-count" style="color:var(--teal)">—</span></div>
+      <div class="kv"><b>Freshness</b><span id="dj-fresh">—</span></div>
+    </div>
+    <div class="btns">
+      <button class="btn" id="b-djrefresh">🔄 Re-pull the DJ sheet now</button>
+    </div>
+    <div class="upd-msg" id="dj-msg"></div>
+  </div>
+
+  <!-- UPDATES (amber) -->
+  <div class="card">
+    <h2><span class="dot" style="background:var(--warn)"></span>Updates &amp; version</h2>
+    <p class="desc">This machine pulls the latest code from the public GitHub repo and
+      restarts the bot — no file-copying needed to push changes out.</p>
+    <div class="upd">
+      <span class="cur">v{{ version }}</span>
+      <span class="arrow">→</span>
+      <span class="latest" id="upd-latest">checking…</span>
+    </div>
+    <div class="btns">
+      <button class="btn" id="b-check">🔎 Check for updates</button>
+      <button class="btn warn" id="b-update" disabled>⬇ Update &amp; restart</button>
+    </div>
+    <div class="upd-msg" id="upd-msg"></div>
+  </div>
+
+  <!-- ACTIVITY LOG (monospace) -->
+  <div class="card">
+    <h2><span class="dot" style="background:var(--violet)"></span>Activity log</h2>
+    <p class="desc">Recent bot events — lookups, refreshes, toggles, errors. Auto-refreshes.</p>
+    <div class="log" id="log">loading…</div>
+  </div>
+
+  <footer>
+    <a href="{{ repo_url }}" target="_blank" rel="noopener">VRCDJ_bot on GitHub</a>
+    · v{{ version }} · built for the community to roll out their own DJ-lookup bot
+  </footer>
+
+</div>
+
+<script>
+const CSRF = "{{ csrf }}";
+const $ = (s)=>document.querySelector(s);
+
+// ---- generic POST with CSRF + JSON --------------------------------------
+async function post(url){
+  const r = await fetch(url, {method:'POST',
+    headers:{'X-CSRF-Token':CSRF, 'Content-Type':'application/x-www-form-urlencoded'},
+    body:'csrf='+encodeURIComponent(CSRF)});
+  return r.json();
+}
+
+// ---- format uptime from an epoch timestamp ------------------------------
+function uptime(fromEpoch){
+  if(!fromEpoch) return '—';
+  let s = Math.max(0, Math.floor(Date.now()/1000 - fromEpoch));
+  const d=Math.floor(s/86400); s-=d*86400;
+  const h=Math.floor(s/3600);  s-=h*3600;
+  const m=Math.floor(s/60);    s-=m*60;
+  if(d) return d+'d '+h+'h';
+  if(h) return h+'h '+m+'m';
+  if(m) return m+'m '+s+'s';
+  return s+'s';
+}
+function ts(t){ return t ? new Date(t).toLocaleTimeString() : ''; }
+
+// ---- poll /api/status ----------------------------------------------------
+async function refreshStatus(){
+  let d;
+  try { d = await (await fetch('/api/status')).json(); } catch { return; }
+  const b = d.bot || {};
+  const pill = $('#bot-pill');
+  if(b.alive){ pill.textContent='● RUNNING'; pill.className='pill run'; }
+  else if(b.want_running){ pill.textContent='↻ RESTARTING'; pill.className='pill wait'; }
+  else { pill.textContent='⏹ STOPPED'; pill.className='pill stop'; }
+  $('#bot-pid').textContent = b.pid ?? '—';
+  $('#bot-uptime').textContent = uptime(b.alive ? (b.ready_at||b.started_at) : null);
+  $('#bot-state').textContent = b.lifecycle_state || '—';
+  $('#commit').textContent = 'commit: ' + (d.commit||'—');
+
+  const on = d.enabled;
+  const tog = $('#dj-toggle');
+  if(tog.checked !== on) tog.checked = on;
+  const st = $('#dj-state');
+  st.textContent = on ? 'ON — answering' : 'OFF — paused';
+  st.style.color = on ? 'var(--teal)' : 'var(--bad)';
+  $('#dj-count').textContent = d.dj_count ?? '—';
+  $('#dj-fresh').textContent = d.dj_freshness || '—';
+}
+
+// ---- poll /api/log -------------------------------------------------------
+function levelClass(k, lvl){
+  if(lvl==='error'||k.includes('error')) return 'err';
+  if(lvl==='warn') return 'warn';
+  if(['ready','toggle','dj_refresh','dj_auto_refresh'].includes(k)) return 'good';
+  if(['dj','vrcdn','djlineup','timeslots','event_lineup'].includes(k)) return 'info';
+  return '';
+}
+async function refreshLog(){
+  let d;
+  try { d = await (await fetch('/api/log')).json(); } catch { return; }
+  const el = $('#log');
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  const rows = (d.entries||[]).slice().reverse(); // newest first
+  el.textContent = rows.length ? '' : '(no events yet)';
+  rows.forEach(e=>{
+    const line = document.createElement('div');
+    const c = levelClass(e.kind||'', e.level||'');
+    const cls = c ? ' class="'+c+'"' : '';
+    const t = e.ts ? new Date(e.ts).toLocaleTimeString() : '';
+    const who = e.who ? (' ['+e.who+']') : '';
+    line.innerHTML = '<span class="ts">'+t+'</span><span'+cls+'> '+ (e.kind||'') +
+      who + (e.detail?('  —  '+escapeHtml(e.detail)):'') +'</span>';
+    el.appendChild(line);
+  });
+  if(atBottom) el.scrollTop = el.scrollHeight;
+}
+function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+// ---- buttons -------------------------------------------------------------
+$('#b-start').onclick   = async()=>{ $('#b-start').disabled=true;  await post('/api/bot-start');   refreshStatus(); };
+$('#b-stop').onclick    = async()=>{ $('#b-stop').disabled=true;   await post('/api/bot-stop');    refreshStatus(); };
+$('#b-restart').onclick = async()=>{ $('#b-restart').disabled=true;await post('/api/bot-restart'); refreshStatus(); };
+
+$('#dj-toggle').onchange = async(e)=>{
+  const want = e.target.checked;
+  const msg = $('#dj-msg');
+  msg.textContent = (want?'Enabling…':'Disabling…');
+  const r = await post('/api/toggle');
+  msg.textContent = r.error ? 'error: '+r.error : (r.enabled?'ON':'OFF')+' ✓';
+  refreshStatus();
+};
+
+$('#b-djrefresh').onclick = async()=>{
+  const b=$('#b-djrefresh'); b.disabled=true;
+  $('#dj-msg').textContent = '🔄 Re-pulling the sheet…';
+  const r = await post('/api/dj-refresh');
+  // the refresh runs in the background; poll until the count changes
+  setTimeout(async()=>{ b.disabled=false;
+    const d = await (await fetch('/api/status')).json();
+    $('#dj-msg').textContent = '✅ Loaded '+d.dj_count+' DJs — '+d.dj_freshness;
+    refreshStatus(); }, 4000);
+};
+
+$('#b-check').onclick = async()=>{
+  $('#upd-msg').textContent = 'checking GitHub…';
+  $('#b-check').disabled=true;
+  const r = await (await fetch('/api/check-updates')).json();
+  $('#b-check').disabled=false;
+  const latest = $('#upd-latest');
+  if(!r.ok){
+    $('#upd-msg').textContent = 'Couldn’t reach GitHub: '+(r.error||'?');
+    latest.textContent = 'unavailable'; latest.className='latest';
+    $('#b-update').disabled=true; return;
+  }
+  latest.textContent = 'v'+r.latest;
+  if(r.up_to_date){
+    latest.className='latest ok';
+    $('#upd-msg').textContent = 'You’re on the latest version. ✓';
+    $('#b-update').disabled=true;
+  } else {
+    latest.className='latest new';
+    $('#upd-msg').textContent = 'New version v'+r.latest+' is available on GitHub.';
+    $('#b-update').disabled=false;
+  }
+};
+
+$('#b-update').onclick = async()=>{
+  const b=$('#b-update'); b.disabled=true;
+  $('#upd-msg').textContent = '⬇ Pulling latest code & restarting the bot…';
+  const r = await post('/api/update');
+  // runs in background; give it a moment then refresh
+  setTimeout(()=>{ b.disabled=false; refreshStatus();
+    $('#upd-msg').textContent = 'Done — the bot is restarting with the new code.';
+  }, 6000);
+};
+
+// ---- kick off -------------------------------------------------------------
+refreshStatus(); refreshLog();
+setInterval(refreshStatus, 4000);
+setInterval(refreshLog, 5000);
+</script>
+</body>
+</html>

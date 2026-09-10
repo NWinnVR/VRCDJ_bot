@@ -1,0 +1,17 @@
+# VRCDJ_bot runtime dependencies (Python 3.10+)
+#
+# Install into a fresh venv:
+#   python -m venv venv
+#   venv\Scripts\activate        (Windows)
+#   pip install -r requirements.txt
+#
+# Only two third-party packages are required.
+# Everything else in the project is standard-library (csv, zoneinfo,
+# dataclasses, http.client, ...).
+
+discord.py==2.7.1
+Flask>=3.0,<4.0
+
+# PyNaCl is an optional extra of discord.py (voice support). VRCDJ_bot does
+# not use voice, so it is intentionally NOT pinned — the bot runs fine
+# without it. If you ever see a PyNaCl warning, it is harmless.
