@@ -14,7 +14,7 @@ ONE place (here), and it flows to the dashboard and the release tooling.
 """
 
 # ---- the version number (MAJOR.MINOR.PATCH) --------------------------------
-VERSION = "1.9"
+VERSION = "1.9.1"
 
 # ---- repo / release metadata (public, safe to ship) ------------------------
 # Used by the dashboard's "check for updates" and the release script.
