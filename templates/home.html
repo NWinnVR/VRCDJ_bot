@@ -33,6 +33,7 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
   background:var(--panel2);border:1px solid var(--border);
   padding:3px 9px;border-radius:999px}
 .commit{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.dash-up{font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 .grow{flex:1}
 .lan{font-family:var(--mono);font-size:12px;color:var(--teal);
   background:rgba(77,208,196,.08);border:1px solid rgba(77,208,196,.25);
@@ -63,8 +64,8 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
 /* usage stats */
 .stats-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:16px;
   padding-top:16px;border-top:1px solid var(--border)}
-.stat{flex:1;min-width:110px;background:var(--panel2);border:1px solid var(--border);
-  border-radius:10px;padding:9px 13px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.stat{flex:1;min-width:150px;background:var(--panel2);border:1px solid var(--border);
+  border-radius:10px;padding:9px 13px;display:flex;align-items:baseline;justify-content:space-between;gap:10px}
 .stat-value{font-family:var(--mono);font-size:20px;font-weight:800;line-height:1}
 .stat-label{font-size:11px;color:var(--muted)}
 .stat .accent-blue{color:var(--accent)}
@@ -124,7 +125,7 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
 .log{background:#0b0e13;border:1px solid var(--border);border-radius:8px;
   padding:12px 14px;max-height:360px;overflow:auto;font-family:var(--mono);
   font-size:12.5px;line-height:1.7;white-space:pre-wrap}
-.log .ts{color:var(--faint)}
+.log .ts{color:var(--faint);margin-right:12px}
 .log .err{color:var(--c-errors);font-weight:600}
 .log .warn{color:var(--warn);font-weight:600}
 .log .good{color:var(--c-system)}
@@ -168,6 +169,7 @@ footer a:hover{color:var(--accent)}
   <header>
     <div class="logo"><img src="/assets/icon.png" alt="" width="28" height="28"> VRCDJ<span>_bot</span></div>
     <div class="ver">v{{ version }}</div>
+    <span class="dash-up" id="dash-up" title="Dashboard process uptime">up: —</span>
     <div class="commit" id="commit">commit: {{ commit }}</div>
     <div class="grow"></div>
     <a class="lan" id="lan" href="{{ lan_url }}" title="Open on this device / LAN">📡 {{ lan_url }}</a>
@@ -195,16 +197,16 @@ footer a:hover{color:var(--accent)}
     <!-- usage counters -->
     <div class="stats-row">
       <div class="stat">
-        <span class="stat-value accent-blue" id="stat-session">0</span>
         <span class="stat-label">💬 Replies · This Session</span>
+        <span class="stat-value accent-blue" id="stat-session">0</span>
       </div>
       <div class="stat">
-        <span class="stat-value accent-teal" id="stat-total">0</span>
         <span class="stat-label">📈 Replies · All Time</span>
+        <span class="stat-value accent-teal" id="stat-total">0</span>
       </div>
       <div class="stat">
-        <span class="stat-value accent-violet" id="stat-servers">0</span>
         <span class="stat-label">🌐 Servers Running It</span>
+        <span class="stat-value accent-violet" id="stat-servers">0</span>
       </div>
     </div>
     <div class="reset-line">
@@ -288,7 +290,7 @@ footer a:hover{color:var(--accent)}
 
   <footer>
     <a href="{{ repo_url }}" target="_blank" rel="noopener">VRCDJ_bot on GitHub</a>
-    · v{{ version }} · built by NWinn for the community to make managing events easier
+    · v{{ version }} · built by <a href="https://linktr.ee/nwinn" target="_blank" rel="noopener">NWinn</a> for the community to make managing events easier
   </footer>
 
 </div>
@@ -338,6 +340,7 @@ async function refreshStatus(){
   $('#bot-uptime').textContent = uptime(b.alive ? (b.ready_at||b.started_at) : null);
   $('#bot-state').textContent = b.lifecycle_state || '—';
   $('#commit').textContent = 'commit: ' + (d.commit||'—');
+  if(!__dashStarted && d.dash_started_at){ __dashStarted = d.dash_started_at; tickDashUp(); }
 
   const on = d.enabled;
   const tog = $('#dj-toggle');
@@ -607,8 +610,15 @@ if(logSearchEl){
 }
 
 // ---- kick off -------------------------------------------------------------
+// dashboard-process uptime (ticking, from server start time)
+let __dashStarted = null;
+function tickDashUp(){
+  const el = $('#dash-up'); if(!el) return;
+  el.textContent = 'up: ' + uptime(__dashStarted);
+}
 refreshStatus(); refreshLog();
 setInterval(refreshStatus, 4000);
+setInterval(tickDashUp, 1000);
 setInterval(refreshLog, 5000);
 
 // Auto-check for updates: once shortly after the page loads, then every 10 min.

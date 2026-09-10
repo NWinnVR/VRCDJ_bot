@@ -7,20 +7,18 @@ link versions, and build DJ event time-slots in one message — no LLM, no
 accounts, no cloud, just your own Discord bot. Built to be self-hosted by
 **any community** that wants the same tools the author uses.
 
-> **v1.9** — versioning policy: the *second* number goes up with every add or
-> fix (`1.0 → 1.1 → 1.2 …`); the *first* number only changes on a major
-> overhaul. See [Releases](#releasing--updating) and [`version.py`](version.py).
+> **v1.9.1** — versioning is now **3-point** (`MAJOR.MINOR.PATCH`): the
+> *third* number goes up with every small fix/tweak (`1.9 → 1.9.1 → 1.9.2 …`),
+> the *second* on a notable add (`1.9.x → 1.10.0`), and the *first* only on a
+> major overhaul. See [Releases](#releasing--updating) and [`version.py`](version.py).
 >
-> **What's new in 1.9:** a **tighter, faster dashboard** with a **custom
-> icon** (favicon + header logo), **dates on every log line**
-> (`YYYY-MM-DD HH:MM:SS`) so long-running sessions stay readable, a **Clear
-> logs** button (history is backed up to disk), a **vibrant color scheme**
-> where the log lines and the filter chips match (red = errors, blue =
-> commands, violet = system), and compacted **Bot Process** + **Pending DJ
-> Additions** panels that use the width instead of the height. **Also in this
-> release line:** log timestamps are stamped in **UTC** so they're correct on
-> every device, the dashboard **shows in Task Manager** with a live title, and
-> the **Updates** card stamps a **last-checked time**.
+> **What's new in 1.9.1:** a **ticking dashboard uptime** in the header
+> (between the version and the commit hash), **Bot Process counters** with the
+> label on the left and the number on the right, a little **breathing room
+> between log timestamps and their text**, a **NWinn → Linktree** link in the
+> footer, and **3-point versioning** going forward. (The 1.9 line added the
+> custom icon, dates on logs, the Clear-logs button, the vibrant color scheme,
+> and tighter panels — see the [changelog](#changelog) below.)
 
 ---
 
@@ -337,6 +335,11 @@ Dark-themed, mobile-friendly, password-gated. Sections (in this order):
 - **Custom icon** — the dashboard and the sign-in page use the bot's own logo
   as both the **header mark** and the **browser favicon** (PNG + ICO, served from
   `assets/`).
+- **Header & footer** — the header shows the **version**, a **live
+  `up: H:MM:SS` uptime** for the dashboard process (ticks every second), and the
+  current **commit hash** in that order. The footer reads *"built by
+  [NWinn](https://linktr.ee/nwinn) for the community to make managing events
+  easier"* — **NWinn** is a hyperlink to the author's Linktree (new tab).
 - **DJ list & lookups** — DJ count, list freshness, and a one-click
   **Re-pull** button.
 - **Pending DJ additions** — the `/adddj` review queue: how many community
@@ -360,22 +363,25 @@ Use the strong password; it's the gate to the controls.
 ### How versioning works
 
 The version lives in exactly one place: [`version.py`](version.py)
-(`VERSION = "1.9"`). It flows to the dashboard, the bot's startup log, and
-GitHub Releases.
+(`VERSION = "1.9.1"`, `MAJOR.MINOR.PATCH`). It flows to the dashboard, the
+bot's startup log, and GitHub Releases.
 
-- **Minor** (default): every add or fix bumps the *second* number:
-  `1.0 → 1.1 → 1.2 …`
-- **Major**: the *first* number, `1.x → 2.0`, only on a big overhaul — and only
-  when the maintainer decides it.
+- **Patch** (default): every small fix or tweak bumps the *third* number:
+  `1.9 → 1.9.1 → 1.9.2 …`
+- **Minor**: a feature or notable add bumps the *second* number and resets the
+  patch: `1.9.x → 1.10.0`
+- **Major**: the *first* number, `1.x → 2.0.0`, only on a big overhaul — and
+  only when the maintainer decides it.
 
 ### Cutting a release
 
 From the project folder:
 
 ```bash
-venv/bin/python release.py --message "Add /foo command"   # minor bump → 1.1
-venv/bin/python release.py --dry-run                       # preview, change nothing
-venv/bin/python release.py --major                         # 1.x → 2.0 (rare)
+venv/bin/python release.py --message "Add /foo command"   # patch bump → 1.9.1
+venv/bin/python release.py --minor                        # minor bump → 1.10.0
+venv/bin/python release.py --major                        # 1.x → 2.0.0 (rare)
+venv/bin/python release.py --dry-run                      # preview, change nothing
 ```
 
 `release.py` bumps `version.py`, commits, tags `v<new>`, and (if the `gh` CLI
@@ -400,6 +406,26 @@ file copying, no zips.
 
 ## Changelog
 
+- **v1.9.1** — **A little more breathing room + 3-point versioning.**
+  - **Ticking dashboard uptime in the header** — the header now shows a live
+    `up: H:MM:SS` timer (dashboard-process uptime) between the version and the
+    commit hash, like the WyBot dashboard. It updates every second; the value
+    comes from a `dash_started_at` epoch the backend captures at startup.
+  - **Bot Process counters: label left, number right** — each usage stat
+    (uptime / DJ lookups / prompts) now spreads its **label to the left** and
+    the **number to the right** of its own cell (`justify-content:space-between`),
+    so the eye tracks "what" then "how much" without the number crowding the word.
+  - **Space between log timestamp and text** — the log line now puts a small
+    gap between the `YYYY-MM-DD HH:MM:SS` stamp and the entry text, so long
+    timestamps no longer run into the first word.
+  - **Footer: NWinn → Linktree** — the *NWinn* name in the *"built by NWinn for
+    the community…"* footer is now a hyperlink to
+    [linktr.ee/nwinn](https://linktr.ee/nwinn) (opens in a new tab).
+  - **3-point versioning** — `version.py` now ships `MAJOR.MINOR.PATCH`.
+    `release.py` defaults to a **patch** bump (`1.9 → 1.9.1`), with `--minor`
+    (`→ 1.10.0`) and `--major` (`→ 2.0.0`). `version_tuple()` returns a 3-tuple
+    and `bump()` / `write_version()` understand the patch position, so the
+    version flows correctly to the dashboard, the bot log, and GitHub Releases.
 - **v1.9** — **A tighter, prettier dashboard — dates, colors, clear, and a custom icon.**
   - **Custom icon everywhere** — your DJ-bot logo (PNG + ICO) is now the
     **header mark** on the dashboard *and* sign-in page, and the **browser

@@ -1,9 +1,9 @@
 """version.py — the single source of truth for VRCDJ_bot's version.
 
-VERSIONING POLICY (Nadia's rule, 2026-09-10):
-    * We ship in MAJOR.MINOR form:  "1.0", "1.1", "1.2", ...
-    * Adding features / fixes  -> bump the MINOR number (the second one):
-          1.0 -> 1.1 -> 1.2 -> ...
+VERSIONING POLICY (Nadia's rule, 2026-09-10 — now 3-point):
+    * We ship in MAJOR.MINOR.PATCH form:  "1.9", "1.9.1", "1.9.2", ...
+    * Small fixes / tweaks  -> bump the PATCH number (the third one) — the default.
+    * A feature / notable add -> bump the MINOR number (the second one), reset patch.
     * A MAJOR bump (1.x -> 2.0) happens ONLY on a huge overhaul AND ONLY when
       Nadia explicitly says to change it. Do not auto-bump the major.
     * This is displayed on the dashboard, embedded in the bot's startup log,
@@ -13,7 +13,7 @@ Keep it a plain string so it's trivial to read, edit, and grep. Bump it in
 ONE place (here), and it flows to the dashboard and the release tooling.
 """
 
-# ---- the version number (MAJOR.MINOR) -------------------------------------
+# ---- the version number (MAJOR.MINOR.PATCH) --------------------------------
 VERSION = "1.9"
 
 # ---- repo / release metadata (public, safe to ship) ------------------------
@@ -29,35 +29,47 @@ SHORT = f"v{VERSION}"
 
 
 def version_tuple():
-    """Return (major, minor) as ints, e.g. (1, 0)."""
+    """Return (major, minor, patch) as ints, e.g. (1, 9, 0).
+
+    Tolerates 2-part ("1.9") and 3-part ("1.9.1") strings — a missing patch
+    is read as 0, so old tags and the dashboard still parse cleanly.
+    """
     parts = VERSION.strip().split(".")
-    major = int(parts[0]) if parts and parts[0].isdigit() else 0
+    major = int(parts[0]) if len(parts) > 0 and parts[0].isdigit() else 0
     minor = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-    return major, minor
+    patch = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    return major, minor, patch
 
 
-def _bump_minor(v: str) -> str:
-    """1.0 -> 1.1, 1.9 -> 1.10 (the default, safe increment)."""
-    major, minor = version_tuple()
-    return f"{major}.{minor + 1}"
-
-
-def bump(kind: str = "minor") -> str:
+def bump(kind: str = "patch") -> str:
     """Compute the next version string WITHOUT writing it.
 
     kind:
-      'minor' -> bump the second number (default; use for every add/fix).
-      'major' -> bump the first number, reset the second (ONLY on Nadia's say).
+      'patch' -> bump the third number (default; use for every small fix/tweak):
+                 1.9     -> 1.9.1     (a 2-part version gets its first patch)
+                 1.9.0   -> 1.9.1
+      'minor' -> bump the second number, reset patch (a feature / notable add):
+                 1.9.0   -> 1.10.0
+      'major' -> bump the first number, reset the rest (ONLY on Nadia's say):
+                 1.x.y   -> 2.0.0
     """
-    major, minor = version_tuple()
+    major, minor, patch = version_tuple()
     if kind == "major":
-        return f"{major + 1}.0"
-    return _bump_minor(VERSION)
+        return f"{major + 1}.0.0"
+    if kind == "minor":
+        return f"{major}.{minor + 1}.0"
+    # default: patch
+    if patch == 0 and minor == 0:
+        return f"{major}.0.1"
+    if patch == 0:
+        # 2-part version like "1.9" — give it its first patch, "1.9.1"
+        return f"{major}.{minor}.1"
+    return f"{major}.{minor}.{patch + 1}"
 
 
-def write_version(kind: str = "minor") -> str:
+def write_version(kind: str = "patch") -> str:
     """Rewrite the VERSION constant in THIS file to the next value and
-    return it. Convenience for the release tooling. Defaults to a minor bump.
+    return it. Convenience for the release tooling. Defaults to a patch bump.
     """
     import re
     from pathlib import Path

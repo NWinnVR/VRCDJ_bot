@@ -2,9 +2,10 @@
 """release.py — bump the version, tag it, and publish a GitHub Release.
 
 This is the one-tool way to cut a new release from the VRCDJ_bot folder.
-It implements Nadia's versioning policy (see version.py):
-  * default = MINOR bump   (1.0 → 1.1 → 1.2 ...)   for every add/fix
-  * --major = MAJOR bump   (1.x → 2.0)              ONLY when explicitly wanted
+It implements Nadia's versioning policy (see version.py), now 3-point:
+  * default = PATCH bump   (1.9 → 1.9.1 → 1.9.2 ...)  for every small fix/tweak
+  * --minor = MINOR bump   (1.9.x → 1.10.0)            for a feature / notable add
+  * --major = MAJOR bump   (1.x → 2.0.0)                ONLY when explicitly wanted
 
 WHAT IT DOES
   1. Bumps version.py (in place, the single source of truth).
@@ -14,9 +15,10 @@ WHAT IT DOES
      (If no network / no gh, it still bumps + tags and tells you the rest.)
 
 USAGE
-  python release.py                  # minor bump (default) → 1.1
-  python release.py --message "Add /foo command"
-  python release.py --major          # major bump → 2.0 (only on Nadia's say)
+  python release.py                  # patch bump (default) → 1.9.1
+  python release.py --minor          # minor bump → 1.10.0 (a feature / notable add)
+  python release.py --major          # major bump → 2.0.0 (only on Nadia's say)
+  python release.py --message "..."  # add release notes
   python release.py --dry-run        # show what it WOULD do, change nothing
 
 No third-party deps (uses git + gh + stdlib).
@@ -61,8 +63,10 @@ def has_git() -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Cut a new VRCDJ_bot release.")
+    ap.add_argument("--minor", action="store_true",
+                    help="bump the MINOR version (1.9.x → 1.10.0). Default is patch.")
     ap.add_argument("--major", action="store_true",
-                    help="bump the MAJOR version (1.x → 2.0). Default is minor.")
+                    help="bump the MAJOR version (1.x → 2.0.0). Only on Nadia's say.")
     ap.add_argument("--message", "-m", default="",
                     help="release notes / commit message (Markdown supported).")
     ap.add_argument("--dry-run", action="store_true",
@@ -71,7 +75,7 @@ def main() -> int:
                     help="bump + tag locally, but don't push / create a GH release.")
     args = ap.parse_args()
 
-    kind = "major" if args.major else "minor"
+    kind = "major" if args.major else ("minor" if args.minor else "patch")
     current = version.VERSION
     new = version.bump(kind)
 

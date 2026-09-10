@@ -57,6 +57,10 @@ import gh_add           # noqa: E402  (the /adddj drop-box — GitHub issue read
 # one place the user configures the dashboard. Real env vars win.
 envload.load_dotenv(str(BASE / "bot.env"))
 
+# When THIS dashboard process started (epoch seconds) — drives the ticking
+# "up: …" uptime in the header. Captured once at import, before the server runs.
+_DASH_STARTED = time.time()
+
 # ---------------------------------------------------------------------------
 # dashboard config
 # ---------------------------------------------------------------------------
@@ -446,6 +450,7 @@ def api_status():
         "stats": _safe_stats(),
         "dj_add": _safe_dj_add(),
         "commit": _safe_commit(),
+        "dash_started_at": _DASH_STARTED,
     })
 
 
