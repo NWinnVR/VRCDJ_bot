@@ -3,14 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VRCDJ_bot — dashboard</title>
+<link rel="icon" type="image/png" sizes="128x128" href="/assets/icon.png">
+<link rel="icon" type="image/x-icon" href="/assets/icon.ico">
+<title>VRCDJ_bot — Control Dashboard</title>
 <style>
 :root{
   --bg:#0d1117; --panel:#161b22; --panel2:#1b212b; --border:#2b313a;
   --fg:#e6edf3; --muted:#8b949e; --faint:#6e7681;
-  --accent:#4d9fff;            /* blue  — bot process */
+  --accent:#4d9fff;            /* blue  — bot process / info */
   --teal:#4dd0c4;              /* teal  — DJ list / lookups */
   --good:#3fb950; --bad:#f85149; --warn:#d29922; --violet:#bc8cff;
+  --c-errors:#ff5c5c;          /* vibrant — error log lines */
+  --c-commands:#4d9fff;        /* vibrant — command log lines */
+  --c-system:#bc8cff;          /* vibrant — system log lines */
   --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
 }
 *{box-sizing:border-box}
@@ -21,7 +26,8 @@ body{margin:0;background:var(--bg);color:var(--fg);
 /* header */
 header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
   padding:6px 2px 18px;border-bottom:1px solid var(--border);margin-bottom:20px}
-.logo{font-size:24px;font-weight:800;letter-spacing:.4px}
+.logo{font-size:24px;font-weight:800;letter-spacing:.4px;display:flex;align-items:center;gap:9px}
+.logo img{width:28px;height:28px;border-radius:6px;display:block}
 .logo span{color:var(--accent)}
 .ver{font-family:var(--mono);font-size:13px;color:var(--fg);
   background:var(--panel2);border:1px solid var(--border);
@@ -57,11 +63,10 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
 /* usage stats */
 .stats-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:16px;
   padding-top:16px;border-top:1px solid var(--border)}
-.stat{flex:1;min-width:120px;background:var(--panel2);border:1px solid var(--border);
-  border-radius:10px;padding:12px 14px}
-.stat-value{display:block;font-family:var(--mono);font-size:26px;font-weight:800;
-  line-height:1.15}
-.stat-label{display:block;font-size:12px;color:var(--muted);margin-top:3px}
+.stat{flex:1;min-width:110px;background:var(--panel2);border:1px solid var(--border);
+  border-radius:10px;padding:9px 13px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.stat-value{font-family:var(--mono);font-size:20px;font-weight:800;line-height:1}
+.stat-label{font-size:11px;color:var(--muted)}
 .stat .accent-blue{color:var(--accent)}
 .stat .accent-teal{color:var(--teal)}
 .stat .accent-violet{color:var(--violet)}
@@ -94,10 +99,10 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
 .toggle-state{font-family:var(--mono);font-weight:700;font-size:15px}
 
 /* pending DJ-additions list */
-.djadd-list{margin-top:14px;display:flex;flex-direction:column;gap:8px}
-.djadd-item{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+.djadd-list{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.djadd-item{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
   background:var(--panel2);border:1px solid var(--border);
-  border-left:3px solid var(--good);border-radius:9px;padding:9px 13px}
+  border-left:3px solid var(--good);border-radius:8px;padding:6px 12px}
 .djadd-item .num{font-family:var(--mono);font-weight:800;font-size:13px;color:var(--good)}
 .djadd-item .ttl{font-size:13.5px;color:var(--fg);flex:1;min-width:160px}
 .djadd-item .ago{font-family:var(--mono);font-size:12px;color:var(--faint);white-space:nowrap}
@@ -120,10 +125,10 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
   padding:12px 14px;max-height:360px;overflow:auto;font-family:var(--mono);
   font-size:12.5px;line-height:1.7;white-space:pre-wrap}
 .log .ts{color:var(--faint)}
-.log .err{color:var(--bad)}
-.log .warn{color:var(--warn)}
-.log .good{color:var(--good)}
-.log .info{color:var(--teal)}
+.log .err{color:var(--c-errors);font-weight:600}
+.log .warn{color:var(--warn);font-weight:600}
+.log .good{color:var(--c-system)}
+.log .info{color:var(--c-commands)}
 .log mark{background:var(--warn);color:#140d00;border-radius:2px;padding:0 1px}
 .log .guild{color:var(--faint)}
 
@@ -133,7 +138,14 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
   border:1px solid var(--border);background:var(--panel2);color:var(--muted);
   cursor:pointer;line-height:1.4;white-space:nowrap}
 .chip:hover{filter:brightness(1.15);color:var(--fg)}
-.chip.active{background:var(--accent);color:#04121f;border-color:transparent;font-weight:700}
+.chip.active{background:var(--fg);color:#0d1117;border-color:transparent;font-weight:700}
+.chip.active[data-filter="errors"]{background:var(--c-errors);color:#160404}
+.chip.active[data-filter="commands"]{background:var(--c-commands);color:#04121f}
+.chip.active[data-filter="system"]{background:var(--c-system);color:#160404}
+.clear-log{font-size:12px;font-weight:600;padding:4px 11px;border-radius:999px;border:1px solid var(--border);
+  background:var(--panel2);color:var(--muted);cursor:pointer;white-space:nowrap}
+.clear-log:hover{color:var(--fg);border-color:var(--c-errors)}
+.clear-log:disabled{opacity:.5;cursor:default}
 .log-search{flex:1;min-width:130px;font-size:12.5px;padding:5px 12px;border-radius:999px;
   border:1px solid var(--border);background:#0b0e13;color:var(--fg);font-family:var(--mono)}
 .log-search::placeholder{color:var(--faint)}
@@ -154,7 +166,7 @@ footer a:hover{color:var(--accent)}
 <div class="wrap">
 
   <header>
-    <div class="logo">🎧 VRCDJ<span>_bot</span></div>
+    <div class="logo"><img src="/assets/icon.png" alt="" width="28" height="28"> VRCDJ<span>_bot</span></div>
     <div class="ver">v{{ version }}</div>
     <div class="commit" id="commit">commit: {{ commit }}</div>
     <div class="grow"></div>
@@ -211,6 +223,7 @@ footer a:hover{color:var(--accent)}
       <button class="chip" data-filter="errors">Errors</button>
       <button class="chip" data-filter="commands">Commands</button>
       <button class="chip" data-filter="system">System</button>
+      <button class="clear-log" id="b-clearlog" title="Clear the live log (history is backed up to disk)">🗑 Clear</button>
       <input class="log-search" id="log-search" type="search"
              placeholder="Search the log…" autocomplete="off" spellcheck="false">
     </div>
@@ -221,9 +234,7 @@ footer a:hover{color:var(--accent)}
   <!-- PENDING DJ ADDITIONS (green) — the /adddj drop-box checker -->
   <div class="card">
     <h2><span class="dot" style="background:var(--good)"></span>Pending DJ Additions</h2>
-    <p class="desc">Community members use <code>/adddj</code> to suggest a new DJ. Each one lands
-      here (a GitHub issue in the repo) for you to review — <b>nothing is added to your
-      master list until you approve it</b>. The sheet is never touched automatically.</p>
+    <p class="desc"><code>/adddj</code> suggestions land here as GitHub issues for you to review — <b>nothing is added until you approve it</b>.</p>
     <div class="toggle-row">
       <span class="toggle-state" id="djadd-count" style="color:var(--good)">…</span>
       <span class="upd-msg" id="djadd-ago" style="margin:0"></span>
@@ -277,7 +288,7 @@ footer a:hover{color:var(--accent)}
 
   <footer>
     <a href="{{ repo_url }}" target="_blank" rel="noopener">VRCDJ_bot on GitHub</a>
-    · v{{ version }} · built for the community to roll out their own DJ-lookup bot
+    · v{{ version }} · built by NWinn for the community to make managing events easier
   </footer>
 
 </div>
@@ -307,6 +318,12 @@ function uptime(fromEpoch){
   return s+'s';
 }
 function ts(t){ return t ? new Date(t).toLocaleTimeString() : ''; }
+// yyyy-mm-dd HH:MM:SS, local time — date included so long sessions stay readable
+function fmtTs(d){
+  const p = n => String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '
+         +p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+}
 
 // ---- poll /api/status ----------------------------------------------------
 async function refreshStatus(){
@@ -403,6 +420,13 @@ function inCategory(e, cat){
   if(cat==='system') return SYSTEM_KINDS.has(k);
   return true;
 }
+// map a line to its category color (errors=red, commands=blue, system=violet)
+function kindClass(k, lvl){
+  if(lvl==='error'||k.includes('error')) return 'err';
+  if(COMMAND_KINDS.has(k)) return 'info';
+  if(SYSTEM_KINDS.has(k)) return 'good';
+  return '';
+}
 function haystack(e){
   return [e.kind, e.user, e.text, e.detail, e.level, e.guild, e.ts]
     .filter(Boolean).join(' ').toLowerCase();
@@ -433,9 +457,9 @@ function renderLog(entries){
   } else {
     shown.forEach(e=>{
       const line = document.createElement('div');
-      const c = levelClass(e.kind||'', e.level||'');
+      const c = kindClass(e.kind||'', e.level||'');
       const cls = c ? ' class="'+c+'"' : '';
-      const t = e.ts ? new Date(e.ts).toLocaleTimeString() : '';
+      const t = e.ts ? fmtTs(new Date(e.ts)) : '';
       const who = e.user ? ' <span class="who">['+highlight(escapeHtml(e.user), logState.search)+']</span>' : '';
       const g   = e.guild ? ' <span class="guild">('+highlight(escapeHtml(e.guild), logState.search)+')</span>' : '';
       line.innerHTML =
@@ -461,6 +485,15 @@ async function refreshLog(){
 $('#b-start').onclick   = async()=>{ $('#b-start').disabled=true;  await post('/api/bot-start');   refreshStatus(); };
 $('#b-stop').onclick    = async()=>{ $('#b-stop').disabled=true;   await post('/api/bot-stop');    refreshStatus(); };
 $('#b-restart').onclick = async()=>{ $('#b-restart').disabled=true;await post('/api/bot-restart'); refreshStatus(); };
+$('#b-clearlog').onclick = async()=>{
+  if(!confirm('Clear the live activity log? The history is backed up to disk (bot_activity.jsonl.1) — this only empties the on-screen log.')) return;
+  const b = $('#b-clearlog'); b.disabled=true;
+  await post('/api/log-clear');
+  window.__logCache = [];
+  renderLog([]);
+  b.disabled=false;
+  setTimeout(refreshLog, 400);
+};
 
 $('#b-reset-stats').onclick = async()=>{
   if(!confirm('Reset the “all time” replies counter to 0? This can’t be undone.')) return;

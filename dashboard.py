@@ -35,7 +35,7 @@ import time
 from pathlib import Path
 
 from flask import (Flask, Response, jsonify, redirect, render_template,
-                   request, session, url_for)
+                   request, send_file, session, url_for)
 
 # ---------------------------------------------------------------------------
 # paths
@@ -354,7 +354,7 @@ def _check_csrf() -> bool:
 # ---- auth middleware --------------------------------------------------------
 @app.before_request
 def _require_login():
-    if request.endpoint in ("login", "static"):
+    if request.endpoint in ("login", "assets"):
         return None
     if not session.get("logged_in"):
         # API routes: always a JSON 401 (fetch().json() and programmatic
@@ -380,6 +380,17 @@ def _secure_headers(resp: Response) -> Response:
 
 
 # ---- routes -----------------------------------------------------------------
+@app.route("/assets/<path:filename>")
+def assets(filename):
+    """Serve static assets (icon.png / icon.ico) from the assets/ dir.
+    Auth-gated like the rest of the app via the before_request hook, and
+    covered by the CSP `img-src 'self'` (relative path on the same origin)."""
+    safe = (BASE / "assets" / filename).resolve()
+    if not str(safe).startswith(str((BASE / "assets").resolve())) or not safe.exists():
+        return ("not found", 404)
+    return send_file(str(safe))
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
@@ -485,6 +496,21 @@ def api_log():
     except Exception:
         entries = []
     return jsonify({"entries": entries})
+
+
+@app.route("/api/log-clear", methods=["POST"])
+def api_log_clear():
+    """Clear the live activity log. ``botlog.clear()`` rotates the current
+    file to a backup (``bot_activity.jsonl.1``), so the history is preserved
+    — only the on-screen / tailed log is emptied. CSRF-protected."""
+    if not _check_csrf():
+        return jsonify({"error": "csrf"}), 403
+    try:
+        botlog.clear()
+    except Exception:
+        pass
+    botlog.log("system", detail="dashboard → log cleared")
+    return jsonify({"ok": True})
 
 
 @app.route("/api/check-updates")

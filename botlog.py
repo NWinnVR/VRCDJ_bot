@@ -279,10 +279,21 @@ def count_lookups(since_ts: str | None = None) -> int:
 
 
 def clear() -> None:
-    """Rotate the live log away (backups keep the history)."""
+    """Clear the live log while preserving the recent history.
+
+    Shifts the backup chain (.3→dropped, .2→.3, .1→.2) and moves the live
+    file into slot .1, so the last few generations of events are still
+    recoverable on disk — only the on-screen / tailed log is emptied.
+    """
     try:
-        if os.path.exists(LOG_PATH):
-            os.replace(LOG_PATH, LOG_PATH + ".1")
+        with _LOCK:
+            for i in range(MAX_BACKUPS, 0, -1):
+                src = LOG_PATH + (f".{i}" if i else "")
+                dst = LOG_PATH + f".{i + 1}"
+                if i and os.path.exists(src):
+                    os.replace(src, dst)
+            if os.path.exists(LOG_PATH):
+                os.replace(LOG_PATH, LOG_PATH + ".1")
     except Exception:
         pass
 

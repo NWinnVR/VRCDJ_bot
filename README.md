@@ -7,20 +7,20 @@ link versions, and build DJ event time-slots in one message — no LLM, no
 accounts, no cloud, just your own Discord bot. Built to be self-hosted by
 **any community** that wants the same tools the author uses.
 
-> **v1.8** — versioning policy: the *second* number goes up with every add or
+> **v1.9** — versioning policy: the *second* number goes up with every add or
 > fix (`1.0 → 1.1 → 1.2 …`); the *first* number only changes on a major
 > overhaul. See [Releases](#releasing--updating) and [`version.py`](version.py).
 >
-> **What's new in 1.8:** **Activity-log timestamps now show the correct time
-> on every device.** Log entries were written in the server's local time with
-> no timezone marker, so a phone, tablet, or box in a different timezone
-> would display them shifted — the "random / goes backwards" times. Entries
-> are now stamped in explicit **UTC**, so every browser converts them to *your*
-> local time correctly, and the sequence is always monotonic. **Also in this
-> release line:** the dashboard now **shows in Task Manager like WyBot**
-> (titled `VRCDJ_bot — Control Dashboard · v… · pid … · uptime`, ticking live),
-> and the **Updates** card stamps a **last-checked time** so you can see on a
-> headless box that it really is checking.
+> **What's new in 1.9:** a **tighter, faster dashboard** with a **custom
+> icon** (favicon + header logo), **dates on every log line**
+> (`YYYY-MM-DD HH:MM:SS`) so long-running sessions stay readable, a **Clear
+> logs** button (history is backed up to disk), a **vibrant color scheme**
+> where the log lines and the filter chips match (red = errors, blue =
+> commands, violet = system), and compacted **Bot Process** + **Pending DJ
+> Additions** panels that use the width instead of the height. **Also in this
+> release line:** log timestamps are stamped in **UTC** so they're correct on
+> every device, the dashboard **shows in Task Manager** with a live title, and
+> the **Updates** card stamps a **last-checked time**.
 
 ---
 
@@ -214,9 +214,9 @@ DASHBOARD_PASSWORD=a-long-random-password
 You'll see:
 
 ```
-[dashboard] VRCDJ_bot v1.8
+[dashboard] VRCDJ_bot v1.9
 [dashboard] Dashboard: http://192.168.x.x:8720
-[bot] ready as YourBot#1234 — 8 commands synced (v1.8)
+[bot] ready as YourBot#1234 — 8 commands synced (v1.9)
 [bot] DJ list: 402 entries — ...
 ```
 
@@ -327,7 +327,16 @@ Dark-themed, mobile-friendly, password-gated. Sections (in this order):
   replies all-time (persistent, with a Reset button), and 🌐 how many servers
   the bot is running in.
 - **Activity log** — recent lookups, DJ suggestions, refreshes, toggles, and
-  errors.
+  errors. Every line carries a **`YYYY-MM-DD HH:MM:SS` timestamp** (date + time,
+  local) so a bot running for weeks or months stays readable; lines are
+  **color-coded by category** — **red** = errors, **blue** = commands, **violet**
+  = system — matching the filter chips above. The one-line toolbar has
+  **All · Errors · Commands · System** chips (each chip lights up in its
+  category color), a **🗑 Clear** button (empties the on-screen log; the history
+  is rotated to `bot_activity.jsonl.1` on disk), and a **free-text search** box.
+- **Custom icon** — the dashboard and the sign-in page use the bot's own logo
+  as both the **header mark** and the **browser favicon** (PNG + ICO, served from
+  `assets/`).
 - **DJ list & lookups** — DJ count, list freshness, and a one-click
   **Re-pull** button.
 - **Pending DJ additions** — the `/adddj` review queue: how many community
@@ -351,7 +360,7 @@ Use the strong password; it's the gate to the controls.
 ### How versioning works
 
 The version lives in exactly one place: [`version.py`](version.py)
-(`VERSION = "1.8"`). It flows to the dashboard, the bot's startup log, and
+(`VERSION = "1.9"`). It flows to the dashboard, the bot's startup log, and
 GitHub Releases.
 
 - **Minor** (default): every add or fix bumps the *second* number:
@@ -391,6 +400,29 @@ file copying, no zips.
 
 ## Changelog
 
+- **v1.9** — **A tighter, prettier dashboard — dates, colors, clear, and a custom icon.**
+  - **Custom icon everywhere** — your DJ-bot logo (PNG + ICO) is now the
+    **header mark** on the dashboard *and* sign-in page, and the **browser
+    favicon** (served from `assets/`, auth-gated like the rest of the app).
+  - **Dates on every log line** — timestamps now show **`YYYY-MM-DD HH:MM:SS`**
+    (date + time, in your local zone) instead of time-only, so a bot running for
+    weeks or months stays readable and older entries keep their date context.
+  - **🗑 Clear logs button** — inline on the log toolbar, just before the search
+    box. It empties the on-screen log and rotates the history to disk
+    (`bot_activity.jsonl.1`), so you can tidy the view without losing the data.
+    CSRF-protected; a "log cleared" event is written.
+  - **Vibrant, consistent color scheme** — the log lines and the filter chips
+    now use the **same category colors**: **red** = errors, **blue** = commands,
+    **violet** = system, **amber** = warnings. Each filter chip lights up in its
+    own category color when active, so the eye can tell at a glance which class
+    of event is on screen.
+  - **Tighter layout (width over height)** — the **Bot Process** usage counters
+    and the **Pending DJ Additions** rows are compacted to use the horizontal
+    space instead of stacking taller rows; the Pending DJ description is
+    shortened to one line.
+  - **Footer** — now reads *"built by NWinn for the community to make managing
+    events easier"* (the version number still auto-updates with the release).
+  - **Sign-in page** — matches the dashboard: same icon logo + favicon.
 - **v1.8** — **Activity-log times are now correct on every device.**
   - **Fixed the "random / goes backwards" log timestamps.** Entries were
     written in the *server's* local time with **no timezone marker**
