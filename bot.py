@@ -408,12 +408,18 @@ class Bot(discord.Client):
             await asyncio.to_thread(bot_state.set_guild_count, len(self.guilds))
         except Exception:
             pass
+        with contextlib.suppress(Exception):
+            botlog.log("guild_join", guild=guild.name,
+                       detail=f"joined a server ({len(self.guilds)} total)")
 
     async def on_guild_remove(self, guild: discord.Guild):
         try:
             await asyncio.to_thread(bot_state.set_guild_count, len(self.guilds))
         except Exception:
             pass
+        with contextlib.suppress(Exception):
+            botlog.log("guild_remove", guild=guild.name,
+                       detail=f"left a server ({len(self.guilds)} remaining)")
 
     # ---- DJ commands --------------------------------------------------------
     async def cmd_dj(self, ctx: discord.Interaction, name: str):
@@ -592,6 +598,8 @@ class Bot(discord.Client):
     async def cmd_status(self, ctx: discord.Interaction):
         on = bot_state.is_enabled()
         fresh = get_dj_freshness()
+        botlog.log("status", who=ctx.user.name,
+                   guild=ctx.guild.name if ctx.guild else "DM")
         lines = [
             f"**VRCDJ_bot v{version.VERSION}**",
             f"{'✅ ON' if on else '🛑 OFF'} — {'answering now' if on else 'fully paused'}",
@@ -600,6 +608,8 @@ class Bot(discord.Client):
         await ctx.response.send_message("\n".join(lines))
 
     async def cmd_help(self, ctx: discord.Interaction):
+        botlog.log("help", who=ctx.user.name,
+                   guild=ctx.guild.name if ctx.guild else "DM")
         lines = [
             "**🤖 VRCDJ_bot — DJ lookup & time-slot tools** "
             f"*(v{version.VERSION})*",

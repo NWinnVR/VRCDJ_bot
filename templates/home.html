@@ -116,13 +116,28 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
 
 /* log */
 .log{background:#0b0e13;border:1px solid var(--border);border-radius:8px;
-  padding:12px 14px;max-height:280px;overflow:auto;font-family:var(--mono);
+  padding:12px 14px;max-height:360px;overflow:auto;font-family:var(--mono);
   font-size:12.5px;line-height:1.7;white-space:pre-wrap}
 .log .ts{color:var(--faint)}
 .log .err{color:var(--bad)}
 .log .warn{color:var(--warn)}
 .log .good{color:var(--good)}
 .log .info{color:var(--teal)}
+.log mark{background:var(--warn);color:#140d00;border-radius:2px;padding:0 1px}
+.log .guild{color:var(--faint)}
+
+/* compact one-line log toolbar: quick-filter chips + free-text search */
+.log-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:9px}
+.chip{font-size:12px;font-weight:600;padding:4px 11px;border-radius:999px;
+  border:1px solid var(--border);background:var(--panel2);color:var(--muted);
+  cursor:pointer;line-height:1.4;white-space:nowrap}
+.chip:hover{filter:brightness(1.15);color:var(--fg)}
+.chip.active{background:var(--accent);color:#04121f;border-color:transparent;font-weight:700}
+.log-search{flex:1;min-width:130px;font-size:12.5px;padding:5px 12px;border-radius:999px;
+  border:1px solid var(--border);background:#0b0e13;color:var(--fg);font-family:var(--mono)}
+.log-search::placeholder{color:var(--faint)}
+.log-search:focus{outline:none;border-color:var(--accent)}
+.log-count{font-size:11.5px;color:var(--faint);margin-top:7px;font-family:var(--mono)}
 
 /* footer */
 footer{margin-top:8px;color:var(--faint);font-size:12.5px;text-align:center}
@@ -143,12 +158,12 @@ footer a:hover{color:var(--accent)}
     <div class="commit" id="commit">commit: {{ commit }}</div>
     <div class="grow"></div>
     <a class="lan" id="lan" href="{{ lan_url }}" title="Open on this device / LAN">📡 {{ lan_url }}</a>
-    <a class="logout" href="{{ url_for('logout') }}">sign out</a>
+    <a class="logout" href="{{ url_for('logout') }}">Sign Out</a>
   </header>
 
   <!-- BOT PROCESS (blue) -->
   <div class="card">
-    <h2><span class="dot" style="background:var(--accent)"></span>Bot process</h2>
+    <h2><span class="dot" style="background:var(--accent)"></span>Bot Process</h2>
     <p class="desc">The Discord bot runs as a child of this dashboard. If it ever
       crashes, a watchdog restarts it automatically.</p>
     <div class="status-row">
@@ -168,33 +183,60 @@ footer a:hover{color:var(--accent)}
     <div class="stats-row">
       <div class="stat">
         <span class="stat-value accent-blue" id="stat-session">0</span>
-        <span class="stat-label">💬 replies · this session</span>
+        <span class="stat-label">💬 Replies · This Session</span>
       </div>
       <div class="stat">
         <span class="stat-value accent-teal" id="stat-total">0</span>
-        <span class="stat-label">📈 replies · all time</span>
+        <span class="stat-label">📈 Replies · All Time</span>
       </div>
       <div class="stat">
         <span class="stat-value accent-violet" id="stat-servers">0</span>
-        <span class="stat-label">🌐 servers running it</span>
+        <span class="stat-label">🌐 Servers Running It</span>
       </div>
     </div>
     <div class="reset-line">
-      <button class="btn" id="b-reset-stats">🗑 Reset “all time” counter</button>
+      <button class="btn" id="b-reset-stats">🗑 Reset “All Time” Counter</button>
       <span class="reset-note">Zeros the lifetime total — this session’s count already resets on every start.</span>
     </div>
   </div>
 
-  <!-- ACTIVITY LOG (monospace) — sits right below Bot process -->
+  <!-- ACTIVITY LOG (monospace) — sits right below Bot Process -->
   <div class="card">
-    <h2><span class="dot" style="background:var(--violet)"></span>Activity log</h2>
-    <p class="desc">Recent bot events — lookups, DJ suggestions, refreshes, toggles, errors. Auto-refreshes.</p>
+    <h2><span class="dot" style="background:var(--violet)"></span>Activity Log</h2>
+    <p class="desc">Every bot event — who asked what, where, refreshes, toggles, errors. Filter by category or search. Auto-refreshes.</p>
+    <!-- compact one-line toolbar: quick-filter chips + free-text search -->
+    <div class="log-toolbar">
+      <button class="chip active" data-filter="all">All</button>
+      <button class="chip" data-filter="errors">Errors</button>
+      <button class="chip" data-filter="commands">Commands</button>
+      <button class="chip" data-filter="system">System</button>
+      <input class="log-search" id="log-search" type="search"
+             placeholder="Search the log…" autocomplete="off" spellcheck="false">
+    </div>
     <div class="log" id="log">loading…</div>
+    <div class="log-count" id="log-count"></div>
+  </div>
+
+  <!-- PENDING DJ ADDITIONS (green) — the /adddj drop-box checker -->
+  <div class="card">
+    <h2><span class="dot" style="background:var(--good)"></span>Pending DJ Additions</h2>
+    <p class="desc">Community members use <code>/adddj</code> to suggest a new DJ. Each one lands
+      here (a GitHub issue in the repo) for you to review — <b>nothing is added to your
+      master list until you approve it</b>. The sheet is never touched automatically.</p>
+    <div class="toggle-row">
+      <span class="toggle-state" id="djadd-count" style="color:var(--good)">…</span>
+      <span class="upd-msg" id="djadd-ago" style="margin:0"></span>
+      <div class="grow"></div>
+      <a class="btn" id="djadd-repo" href="#" target="_blank" rel="noopener">📂 Open in GitHub</a>
+      <button class="btn" id="b-djaddcheck">🔎 Check Now</button>
+    </div>
+    <div class="djadd-list" id="djadd-list"></div>
+    <div class="upd-msg" id="djadd-msg"></div>
   </div>
 
   <!-- DJ LIST / LOOKUPS (teal) -->
   <div class="card">
-    <h2><span class="dot" style="background:var(--teal)"></span>DJ list &amp; lookups</h2>
+    <h2><span class="dot" style="background:var(--teal)"></span>DJ List &amp; Lookups</h2>
     <p class="desc">The master kill-switch. When ON, <code>/dj</code>, <code>/vrcdn</code>,
       <code>/djlineup</code>, <code>/timeslots</code> and the event auto-lineup all answer.</p>
     <div class="toggle-row">
@@ -204,35 +246,18 @@ footer a:hover{color:var(--accent)}
       </label>
       <span class="toggle-state" id="dj-state">…</span>
       <div class="grow"></div>
-      <div class="kv"><b>DJs loaded</b><span id="dj-count" style="color:var(--teal)">—</span></div>
+      <div class="kv"><b>DJs Loaded</b><span id="dj-count" style="color:var(--teal)">—</span></div>
       <div class="kv"><b>Freshness</b><span id="dj-fresh">—</span></div>
     </div>
     <div class="btns">
-      <button class="btn" id="b-djrefresh">🔄 Re-pull the DJ sheet now</button>
+      <button class="btn" id="b-djrefresh">🔄 Re-Pull the DJ Sheet Now</button>
     </div>
     <div class="upd-msg" id="dj-msg"></div>
   </div>
 
-  <!-- PENDING DJ ADDITIONS (green) — the /adddj drop-box checker -->
-  <div class="card">
-    <h2><span class="dot" style="background:var(--good)"></span>Pending DJ additions</h2>
-    <p class="desc">Community members use <code>/adddj</code> to suggest a new DJ. Each one lands
-      here (a GitHub issue in the repo) for you to review — <b>nothing is added to your
-      master list until you approve it</b>. The sheet is never touched automatically.</p>
-    <div class="toggle-row">
-      <span class="toggle-state" id="djadd-count" style="color:var(--good)">…</span>
-      <span class="upd-msg" id="djadd-ago" style="margin:0"></span>
-      <div class="grow"></div>
-      <a class="btn" id="djadd-repo" href="#" target="_blank" rel="noopener">📂 Open in GitHub</a>
-      <button class="btn" id="b-djaddcheck">🔎 Check now</button>
-    </div>
-    <div class="djadd-list" id="djadd-list"></div>
-    <div class="upd-msg" id="djadd-msg"></div>
-  </div>
-
   <!-- UPDATES (amber) -->
   <div class="card">
-    <h2><span class="dot" style="background:var(--warn)"></span>Updates &amp; version</h2>
+    <h2><span class="dot" style="background:var(--warn)"></span>Updates &amp; Version</h2>
     <p class="desc">This machine pulls the latest code from the public GitHub repo and
       restarts the bot — no file-copying needed to push changes out.</p>
     <div class="upd">
@@ -241,8 +266,8 @@ footer a:hover{color:var(--accent)}
       <span class="latest" id="upd-latest">checking…</span>
     </div>
     <div class="btns">
-      <button class="btn" id="b-check">🔎 Check for updates</button>
-      <button class="btn warn" id="b-update" disabled>⬇ Update &amp; restart</button>
+      <button class="btn" id="b-check">🔎 Check For Updates</button>
+      <button class="btn warn" id="b-update" disabled>⬇ Update &amp; Restart</button>
     </div>
     <div class="upd-msg" id="upd-msg"></div>
   </div>
@@ -351,34 +376,83 @@ function renderDjAdd(dd){
   });
 }
 
-// ---- poll /api/log -------------------------------------------------------
+// ---- log: filter chips + free-text search + render ------------------------
+function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function levelClass(k, lvl){
   if(lvl==='error'||k.includes('error')) return 'err';
   if(lvl==='warn') return 'warn';
-  if(['ready','toggle','dj_refresh','dj_auto_refresh'].includes(k)) return 'good';
-  if(['dj','vrcdn','djlineup','timeslots','event_lineup','adddj'].includes(k)) return 'info';
+  if(['ready','toggle','guild_join','guild_remove','dj_refresh','dj_auto_refresh'].includes(k)) return 'good';
+  if(['dj','vrcdn','djlineup','timeslots','event_lineup','adddj','status','help'].includes(k)) return 'info';
   return '';
+}
+// quick-filter categories (a line can match more than one; the active chip wins)
+const COMMAND_KINDS = new Set(['dj','vrcdn','djlineup','timeslots','adddj',
+  'adddj_submit_failed','status','help','event_lineup','dj_refresh']);
+const SYSTEM_KINDS  = new Set(['boot','ready','stopped','toggle','guild_join',
+  'guild_remove','update','update_error','reset_stats','dj_add_check','system',
+  'model','error']);
+function inCategory(e, cat){
+  const k = e.kind||'', lvl = e.level||'';
+  const isErr = (lvl==='error') || k.includes('error');
+  if(cat==='all') return true;
+  if(cat==='errors') return isErr;
+  if(cat==='commands') return COMMAND_KINDS.has(k);
+  if(cat==='system') return SYSTEM_KINDS.has(k);
+  return true;
+}
+function haystack(e){
+  return [e.kind, e.user, e.text, e.detail, e.level, e.guild, e.ts]
+    .filter(Boolean).join(' ').toLowerCase();
+}
+function matchSearch(e, q){
+  if(!q) return true;
+  return haystack(e).includes(q.toLowerCase());
+}
+function highlight(escaped, q){
+  if(!q) return escaped;
+  const eq = escapeHtml(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  try { return escaped.replace(new RegExp('('+eq+')','gi'), '<mark>$1</mark>'); }
+  catch { return escaped; }
+}
+const logState = { filter:'all', search:'' };
+function renderLog(entries){
+  const el = $('#log'), countEl = $('#log-count');
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  const rows = (entries||[]).slice().reverse();                 // newest first
+  const total = rows.length;
+  const shown = rows.filter(e => inCategory(e, logState.filter) && matchSearch(e, logState.search));
+  el.textContent = '';
+  if(!shown.length){
+    const empty = document.createElement('div');
+    empty.style.color = 'var(--faint)';
+    empty.textContent = total ? 'No log lines match that filter / search.' : 'No events yet.';
+    el.appendChild(empty);
+  } else {
+    shown.forEach(e=>{
+      const line = document.createElement('div');
+      const c = levelClass(e.kind||'', e.level||'');
+      const cls = c ? ' class="'+c+'"' : '';
+      const t = e.ts ? new Date(e.ts).toLocaleTimeString() : '';
+      const who = e.user ? ' <span class="who">['+highlight(escapeHtml(e.user), logState.search)+']</span>' : '';
+      const g   = e.guild ? ' <span class="guild">('+highlight(escapeHtml(e.guild), logState.search)+')</span>' : '';
+      line.innerHTML =
+        '<span class="ts">'+t+'</span>' +
+        '<span'+cls+'>'+highlight(escapeHtml(e.kind||''), logState.search)+
+        who+g+(e.detail?('  —  '+highlight(escapeHtml(e.detail), logState.search)):'')+'</span>';
+      el.appendChild(line);
+    });
+  }
+  if(countEl) countEl.textContent =
+    (shown.length === total) ? (total ? total+' events' : '')
+                             : 'showing '+shown.length+' of '+total+'';
+  if(atBottom) el.scrollTop = el.scrollHeight;
 }
 async function refreshLog(){
   let d;
   try { d = await (await fetch('/api/log')).json(); } catch { return; }
-  const el = $('#log');
-  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-  const rows = (d.entries||[]).slice().reverse(); // newest first
-  el.textContent = rows.length ? '' : '(no events yet)';
-  rows.forEach(e=>{
-    const line = document.createElement('div');
-    const c = levelClass(e.kind||'', e.level||'');
-    const cls = c ? ' class="'+c+'"' : '';
-    const t = e.ts ? new Date(e.ts).toLocaleTimeString() : '';
-    const who = e.who ? (' ['+e.who+']') : '';
-    line.innerHTML = '<span class="ts">'+t+'</span><span'+cls+'> '+ (e.kind||'') +
-      who + (e.detail?('  —  '+escapeHtml(e.detail)):'') +'</span>';
-    el.appendChild(line);
-  });
-  if(atBottom) el.scrollTop = el.scrollHeight;
+  window.__logCache = d.entries||[];   // cache for instant chip/search re-render
+  renderLog(window.__logCache);
 }
-function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 // ---- buttons -------------------------------------------------------------
 $('#b-start').onclick   = async()=>{ $('#b-start').disabled=true;  await post('/api/bot-start');   refreshStatus(); };
@@ -456,6 +530,27 @@ $('#b-update').onclick = async()=>{
     $('#upd-msg').textContent = 'Done — the bot is restarting with the new code.';
   }, 6000);
 };
+
+// ---- log toolbar: quick-filter chips + free-text search -------------------
+document.querySelectorAll('.chip[data-filter]').forEach(chip=>{
+  chip.onclick = ()=>{
+    logState.filter = chip.dataset.filter;
+    document.querySelectorAll('.chip[data-filter]').forEach(c=>c.classList.remove('active'));
+    chip.classList.add('active');
+    renderLog((window.__logCache||[]));
+  };
+});
+const logSearchEl = $('#log-search');
+if(logSearchEl){
+  let deb;
+  logSearchEl.addEventListener('input', ()=>{
+    clearTimeout(deb);
+    deb = setTimeout(()=>{
+      logState.search = (logSearchEl.value||'').trim();
+      renderLog((window.__logCache||[]));
+    }, 120);
+  });
+}
 
 // ---- kick off -------------------------------------------------------------
 refreshStatus(); refreshLog();

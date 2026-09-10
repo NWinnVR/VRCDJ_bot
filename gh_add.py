@@ -47,7 +47,19 @@ def _safe_err(exc: Exception) -> str:
     """Format an exception for display, scrubbing tokens and absolute paths."""
     msg = str(exc) or type(exc).__name__
     if isinstance(exc, urllib.error.HTTPError):
-        # Do NOT dump exc.body (it may echo the request / token). Just the code.
+        # Do NOT dump exc.body (it may echo the request / token). Just the code,
+        # but with a SELF-DIAGNOSING hint so the user knows exactly what to do
+        # instead of staring at a bare "GitHub HTTP 401".
+        if exc.code == 401:
+            return ("GitHub rejected the token (HTTP 401). It's missing, expired, "
+                    "or lacks the 'repo' scope — re-add a valid GH_TOKEN to "
+                    "bot.env.")
+        if exc.code == 403:
+            return ("GitHub refused the request (HTTP 403) — the token is likely "
+                    "rate-limited or missing the 'repo' scope. Re-add a valid "
+                    "GH_TOKEN to bot.env.")
+        if exc.code == 404:
+            return "GitHub says that repo/label doesn't exist (HTTP 404)."
         return f"GitHub HTTP {exc.code}"
     if isinstance(exc, urllib.error.URLError):
         return f"GitHub unreachable: {type(exc.reason).__name__}"

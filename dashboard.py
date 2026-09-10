@@ -417,7 +417,7 @@ def api_dj_refresh():
 @app.route("/api/log")
 def api_log():
     try:
-        entries = botlog.tail(100)
+        entries = botlog.tail(400)
     except Exception:
         entries = []
     return jsonify({"entries": entries})

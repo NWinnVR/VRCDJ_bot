@@ -7,14 +7,42 @@ link versions, and build DJ event time-slots in one message — no LLM, no
 accounts, no cloud, just your own Discord bot. Built to be self-hosted by
 **any community** that wants the same tools the author uses.
 
-> **v1.4** — versioning policy: the *second* number goes up with every add or
+> **v1.5** — versioning policy: the *second* number goes up with every add or
 > fix (`1.0 → 1.1 → 1.2 …`); the *first* number only changes on a major
 > overhaul. See [Releases](#releasing--updating) and [`version.py`](version.py).
 >
-> **What's new in 1.4:** `/adddj` — community members can suggest new DJs from
-> any server; suggestions land as GitHub issues the maintainer reviews. The
-> dashboard gained a **Pending DJ additions** checker, the usage counters, and
-> a tidied layout. See the [changelog](#changelog).
+> **What's new in 1.5:** `/adddj` now posts reliably (GitHub **401** auth fix)
+> and self-diagnoses if the token ever goes stale. The dashboard's **Activity
+> Log** is far richer — it shows **who** used each command and **which server**
+> (previously hidden), logs `/status`, `/help` and bot joins/leaves, and gets a
+> one-line toolbar of **filter chips + search**. **Pending DJ Additions** now
+> sits right under the log. The README gained a one-click **Add to Discord**
+> install, and the dashboard is title-cased throughout.
+
+---
+
+## 🚀 Add it to your Discord (fastest way)
+
+The quickest path is a **one-click install** — no code, no terminal, no server
+of your own. This adds the author's live bot instance to your server:
+
+**👉 [Add VRCDJ_bot to Discord](https://discord.com/oauth2/authorize?client_id=1547554560049156116)**
+
+What to do on the Discord page it opens:
+
+1. Click **Authorize** — Discord will ask for permission to add the bot.
+2. Make sure the **Bot** scope is checked and the **Send Messages** permission
+   is on (it's pre-set; no need to hunt around).
+3. Pick the server you want to add it to and click **Continue** / **Confirm**.
+4. You're in — type `/` in any text channel and the commands appear:
+   `/dj`, `/vrcdn`, `/djlineup`, `/timeslots`, `/adddj`, `/status`, `/help`.
+
+> **Good to know:** this links the *author's* running bot, so it already works
+> and needs no maintenance from you. DJ lookups pull from the shared master
+> list, and `/adddj` suggestions route to the author's review queue — a
+> community feature, not a leak of your data. If you'd rather run your **own
+> copy** (own token, own list, own review queue), skip ahead to
+> [Quick start](#quick-start) for a self-hosted install.
 
 ---
 
@@ -183,9 +211,9 @@ DASHBOARD_PASSWORD=a-long-random-password
 You'll see:
 
 ```
-[dashboard] VRCDJ_bot v1.4
+[dashboard] VRCDJ_bot v1.5
 [dashboard] Dashboard: http://192.168.x.x:8720
-[bot] ready as YourBot#1234 — 8 commands synced (v1.4)
+[bot] ready as YourBot#1234 — 8 commands synced (v1.5)
 [bot] DJ list: 402 entries — ...
 ```
 
@@ -318,7 +346,7 @@ Use the strong password; it's the gate to the controls.
 ### How versioning works
 
 The version lives in exactly one place: [`version.py`](version.py)
-(`VERSION = "1.4"`). It flows to the dashboard, the bot's startup log, and
+(`VERSION = "1.5"`). It flows to the dashboard, the bot's startup log, and
 GitHub Releases.
 
 - **Minor** (default): every add or fix bumps the *second* number:
@@ -355,6 +383,22 @@ file copying, no zips.
 
 ## Changelog
 
+- **v1.5** — **Reliability + a much richer dashboard.**
+  - **`/adddj` GitHub 401 fixed** — the bot now authenticates to GitHub with a
+    proper token, and the error message **self-diagnoses** (tells you exactly
+    what's wrong and how to fix it) instead of surfacing a bare "HTTP 401".
+  - **Activity Log shows *who* and *where*** — the username and server name
+    were previously never displayed (a field mismatch); now every entry shows
+    them. `/status`, `/help` and **bot joins/leaves** are now logged too.
+  - **Log toolbar** — a compact one-line row of **filter chips** (All ·
+    Errors · Commands · System) + a **free-text search** box, plus a
+    "showing X of Y" counter. Log history cap raised **100 → 400** entries.
+  - **Pending DJ Additions** card moved up to sit directly **below the log**.
+  - **README** — one-click **"Add it to your Discord"** install section near the
+    top with a step-by-step walkthrough.
+  - **Dashboard title-cased** throughout (Bot Process, Activity Log, Updates &
+    Version, stat labels, buttons, Sign Out).
+  - Ships the `verify_adddj.py` end-to-end pipeline test.
 - **v1.4** — `/adddj` community DJ suggestions (name + link required, genres
   / availability optional; a VRCDN link auto-expands to all three versions
   using the `/vrcdn` engine); GitHub **issue** drop-box (no pastebin, no sheet
@@ -431,6 +475,7 @@ VRCDJ_bot/
 ├── discord_send.py      # chunked Discord message sender
 ├── dj_add.py            # /adddj — classify + format a DJ suggestion (pure)
 ├── gh_add.py            # /adddj — GitHub issue drop-box (create + list)
+├── verify_adddj.py      # end-to-end test of the /adddj → GitHub → dashboard pipeline
 ├── bot_config.py        # config (sheet URL, defaults)
 ├── bot_state.py         # runtime state + duplicate-instance guard
 ├── botlog.py            # structured activity log
