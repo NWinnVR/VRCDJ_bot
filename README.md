@@ -7,18 +7,20 @@ link versions, and build DJ event time-slots in one message — no LLM, no
 accounts, no cloud, just your own Discord bot. Built to be self-hosted by
 **any community** that wants the same tools the author uses.
 
-> **v1.6** — versioning policy: the *second* number goes up with every add or
+> **v1.8** — versioning policy: the *second* number goes up with every add or
 > fix (`1.0 → 1.1 → 1.2 …`); the *first* number only changes on a major
 > overhaul. See [Releases](#releasing--updating) and [`version.py`](version.py).
 >
-> **What's new in 1.6:** **Stop / Restart / Update actually work now** — the
-> dashboard kills the bot's *whole* process tree (not just the launcher), so
-> it no longer orphans a "ghost" bot that blocks every respawn with
-> "another bot is already running". A new **Restart All** button flushes
-> everything — bot *and* dashboard — and comes back clean, which is exactly
-> what a **headless server** needs (no manual window-clicking). And the
-> **Updates** card now **checks by itself** on page load and every 10 minutes
-> instead of sitting on "checking…" until you click it.
+> **What's new in 1.8:** **Activity-log timestamps now show the correct time
+> on every device.** Log entries were written in the server's local time with
+> no timezone marker, so a phone, tablet, or box in a different timezone
+> would display them shifted — the "random / goes backwards" times. Entries
+> are now stamped in explicit **UTC**, so every browser converts them to *your*
+> local time correctly, and the sequence is always monotonic. **Also in this
+> release line:** the dashboard now **shows in Task Manager like WyBot**
+> (titled `VRCDJ_bot — Control Dashboard · v… · pid … · uptime`, ticking live),
+> and the **Updates** card stamps a **last-checked time** so you can see on a
+> headless box that it really is checking.
 
 ---
 
@@ -212,9 +214,9 @@ DASHBOARD_PASSWORD=a-long-random-password
 You'll see:
 
 ```
-[dashboard] VRCDJ_bot v1.6
+[dashboard] VRCDJ_bot v1.8
 [dashboard] Dashboard: http://192.168.x.x:8720
-[bot] ready as YourBot#1234 — 8 commands synced (v1.6)
+[bot] ready as YourBot#1234 — 8 commands synced (v1.8)
 [bot] DJ list: 402 entries — ...
 ```
 
@@ -349,7 +351,7 @@ Use the strong password; it's the gate to the controls.
 ### How versioning works
 
 The version lives in exactly one place: [`version.py`](version.py)
-(`VERSION = "1.6"`). It flows to the dashboard, the bot's startup log, and
+(`VERSION = "1.8"`). It flows to the dashboard, the bot's startup log, and
 GitHub Releases.
 
 - **Minor** (default): every add or fix bumps the *second* number:
@@ -389,6 +391,26 @@ file copying, no zips.
 
 ## Changelog
 
+- **v1.8** — **Activity-log times are now correct on every device.**
+  - **Fixed the "random / goes backwards" log timestamps.** Entries were
+    written in the *server's* local time with **no timezone marker**
+    (`2026-09-10T15:03:05.130`). A browser on a device set to a different
+    zone (phone, tablet, another box) interpreted that naive string with *its*
+    offset, so the same entry showed a different time depending on where you
+    opened the dashboard — and could even look like it "went backwards" against
+    your wall clock. Entries are now stamped in explicit **UTC**
+    (`2026-09-10T20:03:05.130Z`), which every browser converts to the viewer's
+    local time correctly, and the sequence is always monotonic. `_parse_ts`
+    keeps reading both old and new entries, so nothing breaks on the cutover.
+- **v1.7** — **Task Manager visibility + last-checked timestamp.**
+  - **Shows in Task Manager like WyBot** — the dashboard now sets its console
+    window title to
+    `VRCDJ_bot — Control Dashboard · v<ver> · pid <pid> · <uptime>`, refreshed
+    every 30 s with a live ticking uptime counter. It appears in the Task
+    Manager **Apps** tab with its PID, just like the WyBot dashboard.
+  - **Last-checked time** — the **Updates & Version** card now stamps
+    `last checked: HH:MM:SS` on every auto/manual check, so on a headless box
+    you can glance and see it really is checking.
 - **v1.6** — **Reliable control: Stop / Restart / Update that actually work,
   plus one-click headless management.**
   - **Fixed the "another bot is already running" loop** — the real bug. The bot
