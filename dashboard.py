@@ -793,8 +793,55 @@ def _wait_port_free(port: int, timeout: float = 20.0) -> bool:
 
 
 # ---- main -------------------------------------------------------------------
+def _fmt_uptime(secs: int) -> str:
+    h = secs // 3600
+    m = (secs % 3600) // 60
+    s = secs % 60
+    return f"{h}h {m:02d}m {s:02d}s"
+
+
+def _set_console_title() -> None:
+    """Rename this process's window so it shows in Task Manager's 'Apps' tab
+    with a clear name, PID, and live uptime — just like WyBot's dashboard.
+
+    Flask is a console app (no GUI window), so on Windows we set the
+    console title via SetConsoleTitleW. Task Manager reads that title for
+    any console process that has a window (which it does when launched from
+    run_dashboard.bat). Falls back to os.environ['CONSOLE_TITLE'] (no-op)
+    on non-Windows.
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        uptime = int(time.time() - _start_time)
+        title = (
+            f"VRCDJ_bot — Control Dashboard · v{version.VERSION}"
+            f" · pid {os.getpid()}"
+            f" · {_fmt_uptime(uptime)}"
+        )
+        ctypes.windll.user32.SetConsoleTitleW(title)
+    except Exception:
+        pass
+
+
+_start_time = time.time()
+
+
+def _uptime_loop() -> None:
+    """Background thread: refresh the console title every 30s so the uptime
+    counter in Task Manager ticks forward, just like WyBot's."""
+    while True:
+        time.sleep(30)
+        _set_console_title()
+
+
 def main():
     ensure_password()
+    # Start the Task Manager title ticker (Windows-only; no-op elsewhere).
+    t = threading.Thread(target=_uptime_loop, daemon=True)
+    t.start()
+    _set_console_title()
     no_autostart = os.environ.get("VRCDJ_NO_AUTOSTART", "").strip() in ("1", "true", "yes")
     print(f"[dashboard] VRCDJ_bot v{version.VERSION}")
     print(f"[dashboard] Dashboard: {_lan_url()}")

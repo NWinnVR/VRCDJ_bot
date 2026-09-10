@@ -113,6 +113,7 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
 .upd .latest.new{color:var(--warn)}
 .upd .latest.ok{color:var(--good)}
 .upd-msg{font-size:12.5px;color:var(--muted);margin-top:10px;min-height:16px}
+.upd-last{font-size:11.5px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums;opacity:.8}
 
 /* log */
 .log{background:#0b0e13;border:1px solid var(--border);border-radius:8px;
@@ -271,6 +272,7 @@ footer a:hover{color:var(--accent)}
       <button class="btn bad" id="b-restart-all">💥 Restart All (Full Flush)</button>
     </div>
     <div class="upd-msg" id="upd-msg"></div>
+    <div class="upd-last" id="upd-last"></div>
   </div>
 
   <footer>
@@ -500,13 +502,16 @@ $('#b-djaddcheck').onclick = async()=>{
 };
 
 // ---- updates: shared check (used by the button, auto-on-load, and periodic)
+function _stampLast(text){ const el=$('#upd-last'); if(el) el.textContent=text; }
 async function checkUpdates(){
   const btn = $('#b-check'); if(btn) btn.disabled = true;
   $('#upd-msg').textContent = 'checking GitHub…';
   let r;
   try { r = await (await fetch('/api/check-updates')).json(); }
-  catch { if(btn) btn.disabled=false; $('#upd-msg').textContent=''; return; }
+  catch { if(btn) btn.disabled=false; $('#upd-msg').textContent='';
+          _stampLast('last checked: failed (no network?)'); return; }
   if(btn) btn.disabled=false;
+  _stampLast('last checked: ' + new Date().toLocaleTimeString());
   const latest = $('#upd-latest');
   if(!r.ok){
     $('#upd-msg').textContent = 'Couldn’t reach GitHub: '+(r.error||'?');
