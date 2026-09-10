@@ -268,6 +268,7 @@ footer a:hover{color:var(--accent)}
     <div class="btns">
       <button class="btn" id="b-check">🔎 Check For Updates</button>
       <button class="btn warn" id="b-update" disabled>⬇ Update &amp; Restart</button>
+      <button class="btn bad" id="b-restart-all">💥 Restart All (Full Flush)</button>
     </div>
     <div class="upd-msg" id="upd-msg"></div>
   </div>
@@ -498,11 +499,14 @@ $('#b-djaddcheck').onclick = async()=>{
   renderDjAdd(r);
 };
 
-$('#b-check').onclick = async()=>{
+// ---- updates: shared check (used by the button, auto-on-load, and periodic)
+async function checkUpdates(){
+  const btn = $('#b-check'); if(btn) btn.disabled = true;
   $('#upd-msg').textContent = 'checking GitHub…';
-  $('#b-check').disabled=true;
-  const r = await (await fetch('/api/check-updates')).json();
-  $('#b-check').disabled=false;
+  let r;
+  try { r = await (await fetch('/api/check-updates')).json(); }
+  catch { if(btn) btn.disabled=false; $('#upd-msg').textContent=''; return; }
+  if(btn) btn.disabled=false;
   const latest = $('#upd-latest');
   if(!r.ok){
     $('#upd-msg').textContent = 'Couldn’t reach GitHub: '+(r.error||'?');
@@ -519,6 +523,18 @@ $('#b-check').onclick = async()=>{
     $('#upd-msg').textContent = 'New version v'+r.latest+' is available on GitHub.';
     $('#b-update').disabled=false;
   }
+}
+$('#b-check').onclick = ()=>checkUpdates();
+
+// ---- 💥 Restart All — full flush (kills bot + dashboard, relaunches clean)
+$('#b-restart-all').onclick = async()=>{
+  if(!confirm('Flush EVERYTHING?\n\nThis kills the bot AND this dashboard, then\nrelaunches a fresh dashboard + bot. For a headless server this is the\none-click "clean restart".\n\nContinue?')) return;
+  const b = $('#b-restart-all'); b.disabled=true;
+  $('#upd-msg').textContent = '💥 Flushing all processes and relaunching… (the page will go blank for a moment)';
+  try { await post('/api/restart-all'); } catch { /* socket dies mid-shutdown */ }
+  // the server is shutting down; keep polling so the UI comes back alive.
+  b.textContent = '💥 restarting…';
+  setTimeout(()=>{ refreshStatus(); }, 6000);
 };
 
 $('#b-update').onclick = async()=>{
@@ -556,6 +572,10 @@ if(logSearchEl){
 refreshStatus(); refreshLog();
 setInterval(refreshStatus, 4000);
 setInterval(refreshLog, 5000);
+
+// Auto-check for updates: once shortly after the page loads, then every 10 min.
+setTimeout(checkUpdates, 1500);
+setInterval(checkUpdates, 10*60*1000);
 </script>
 </body>
 </html>

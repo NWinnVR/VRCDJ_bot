@@ -198,9 +198,31 @@ class BotManager:
                           f"bot process exited (code={exit_code}); restarting")
                 self._spawn()
 
-    def start(self) -> None:
-        self._want_running = True
-        self._spawn()
+    @staticmethod
+    def _kill_tree(pid: int) -> bool:
+        """Kill a process AND its whole child tree.
+
+        Why this exists: the bot is launched via `venv\\Scripts\\vrcjb.exe`,
+        which is a byte-identical copy of python.exe. On Windows the Python
+        launcher re-execs, so the tracked child process (the launcher) is the
+        PARENT of the real `python.exe` bot. A plain `proc.kill()` kills only
+        the launcher and ORPHANS the real bot — which keeps beating the
+        lifecycle heartbeat, so every respawn sees 'another bot already
+        running' and exits. Killing the whole tree fixes that.
+        """
+        import signal
+        if os.name == "nt":
+            # taskkill /T = kill the process tree; /F = force.
+            r = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True, text=True)
+            return r.returncode == 0
+        # POSIX: we spawned with CREATE_NEW_PROCESS_GROUP, so kill the group.
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+            return True
+        except Exception:
+            return False
 
     def stop(self) -> None:
         self._want_running = False
@@ -208,23 +230,65 @@ class BotManager:
             proc = self._proc
             self._proc = None
         if proc and proc.poll() is None:
-            # proc.kill() → TerminateProcess on Windows, SIGKILL on POSIX.
-            # We spawn the bot with CREATE_NEW_PROCESS_GROUP (Windows) so a
-            # single kill covers the whole process tree.
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            # Kill the WHOLE tree (see _kill_tree), then reap.
+            self._kill_tree(proc.pid)
             try:
                 proc.wait(timeout=5)
             except Exception:
                 pass
+            # Belt-and-braces: if a heartbeat is still alive (an orphan),
+            # flush it so the duplicate-guard doesn't block the next start.
+            self.force_reap()
         self._log("bot_stopped", "user requested stop")
 
     def restart(self) -> None:
         self.stop()
-        time.sleep(1)
+        # Give the heartbeat a beat to go stale before we spawn a replacement.
+        self._wait_stale(timeout=12.0)
         self.start()
+
+    def force_reap(self) -> dict:
+        """Kill any live VRCDJ_bot the lifecycle file still claims is running
+        (covers an orphan the dashboard never tracked). Safe to call any time."""
+        try:
+            lc = bot_state._read_json(
+                bot_state.LIFECYCLE_PATH, bot_state._LIFECYCLE_DEFAULTS)
+        except Exception:
+            lc = {}
+        pid = lc.get("pid")
+        last_beat = lc.get("last_beat")
+        now = time.time()
+        if pid and last_beat and (now - last_beat) < bot_state.LIVE_STALE_SECONDS:
+            # Don't ever kill our own dashboard process.
+            if pid != os.getpid():
+                try:
+                    self._kill_tree(int(pid))
+                    self._log("bot_reaped", f"killed orphan bot pid={pid}")
+                except Exception:
+                    pass
+            # Mark stopped so the stale heartbeat can't trip the guard.
+            with contextlib.suppress(Exception):
+                bot_state.mark_stopped()
+        return {"pid": pid, "reaped": bool(pid and last_beat
+                and (now - last_beat) < bot_state.LIVE_STALE_SECONDS)}
+
+    def _wait_stale(self, timeout: float = 12.0, poll: float = 0.4) -> bool:
+        """Block until the bot heartbeat is no longer fresh (or timeout)."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                if bot_state.duplicate_info() is None:
+                    return True
+            except Exception:
+                return True
+            time.sleep(poll)
+        return False
+
+    def start(self) -> None:
+        self._want_running = True
+        # Make sure no orphan is holding the token before we spawn a new bot.
+        self.force_reap()
+        self._spawn()
 
     def status(self) -> dict:
         with self._lock:
@@ -489,6 +553,75 @@ def api_update():
     return jsonify({"ok": True, "started": True})
 
 
+@app.route("/api/restart-all", methods=["POST"])
+def api_restart_all():
+    """Nuclear option — flush EVERYTHING and come back clean.
+
+    For a headless server: kills the bot AND the entire dashboard process
+    tree, then relaunches the dashboard from its own venv in a fresh,
+    detached window (which auto-starts the bot). Surviving processes are
+    zero — no orphan can keep a Discord token or the heartbeat alive.
+
+    Order matters:
+      1. Kill the BOT tree (child of the old dashboard) — frees the token
+         and stops the heartbeat.
+      2. Spawn the NEW dashboard DETACHED (new window + new session) so the
+         kill in step 3 can't reach it. It auto-starts its own bot.
+      3. Kill the OLD dashboard tree (stub launcher + real python) and
+         exit the current process.
+    """
+    if not _check_csrf():
+        return jsonify({"error": "csrf"}), 403
+
+    def _do():
+        log = []
+        # 1. Kill the bot tree (child of the old dashboard).
+        try:
+            bot_manager.force_reap()
+            log.append("killed bot tree")
+        except Exception as exc:
+            log.append(f"bot kill err: {str(exc)[:120]}")
+        # 2. Spawn the new dashboard, fully detached, in a fresh console.
+        try:
+            dash_python = str(BASE / "venv" / "Scripts" / "vrcjd.exe")
+            if not (os.name == "nt" and os.path.exists(dash_python)):
+                dash_python = BotManager._python()
+            DETACHED = 0x00000008 if os.name == "nt" else 0     # DETACHED_PROCESS
+            NEW_CONSOLE = 0x00000010 if os.name == "nt" else 0  # CREATE_NEW_CONSOLE
+            spawn_flags = DETACHED | NEW_CONSOLE
+            new = subprocess.Popen(
+                [dash_python, str(BASE / "dashboard.py")],
+                cwd=str(BASE),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=spawn_flags,
+            )
+            log.append(f"spawned new dashboard pid={new.pid}")
+        except Exception as exc:
+            log.append(f"spawn new dashboard FAILED: {str(exc)[:200]}")
+            with contextlib.suppress(Exception):
+                botlog.log("restart_all_failed", level="error",
+                           detail="; ".join(log)[:400])
+            return  # keep the OLD dashboard alive rather than taking both down
+        # 3. Kill the OLD dashboard's whole process tree (incl. the stub
+        #    launcher) — the new one is already detached, so it survives.
+        me = os.getpid()
+        if os.name == "nt":
+            for pid in (me,):
+                with contextlib.suppress(Exception):
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                                   capture_output=True, text=True)
+        # 4. Exit this (old) dashboard immediately.
+        with contextlib.suppress(Exception):
+            botlog.log("restart_all", level="info",
+                       detail=("Force Restart All: old dashboard exiting, "
+                               "new dashboard is up. " + "; ".join(log))[:400])
+            os._exit(0)
+
+    threading.Thread(target=_do, daemon=True).start()
+    return jsonify({"ok": True, "restarting": True})
+
+
 @app.route("/api/bot-restart", methods=["POST"])
 def api_bot_restart():
     if not _check_csrf():
@@ -637,6 +770,28 @@ def _lan_url() -> str:
         return f"http://localhost:{PORT}"
 
 
+def _wait_port_free(port: int, timeout: float = 20.0) -> bool:
+    """Block until the port is free (used after /api/restart-all relaunches us).
+
+    When the dashboard self-restarts it spawns a fresh instance *before* it
+    exits, so the old process may still hold the port for a few moments. Rather
+    than crash on bind, the newcomer waits here until the port releases.
+    """
+    import socket as _s
+    deadline = time.time() + timeout
+    while True:
+        probe = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+        try:
+            probe.bind(("0.0.0.0", port))
+            return True
+        except OSError:
+            if time.time() >= deadline:
+                return False
+            time.sleep(0.3)
+        finally:
+            probe.close()
+
+
 # ---- main -------------------------------------------------------------------
 def main():
     ensure_password()
@@ -645,6 +800,14 @@ def main():
     print(f"[dashboard] Dashboard: {_lan_url()}")
     print(f"[dashboard] Opening a browser at that URL will show the login page.")
     print()
+
+    # If a previous dashboard still holds our port (a self-restart just
+    # launched us), wait for it to release the port instead of crashing.
+    if not _wait_port_free(PORT):
+        print(f"[dashboard] FATAL: port {PORT} is still in use after waiting — "
+              f"another dashboard is probably already running.")
+        print(f"[dashboard] Stop the other instance, then re-run run_dashboard.bat.")
+        sys.exit(1)
 
     # Start the watchdog thread (auto-restarts the bot if it dies).
     threading.Thread(target=bot_manager._watchdog, daemon=True,
