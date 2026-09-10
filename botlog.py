@@ -33,7 +33,7 @@ import json
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOG_PATH = os.path.join(HERE, "bot_activity.jsonl")
@@ -55,7 +55,7 @@ def log(kind: str, *, who: str = "", user: str = "", user_id: str = "",
     try:
         _rotate_if_needed()
         entry = {
-            "ts": datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3],
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "kind": kind,
             "user": who or user,
             "user_id": user_id,
@@ -138,14 +138,21 @@ LOOKUP_KINDS = {"dj", "host", "djlineup"}
 
 
 def _parse_ts(s: str):
-    """Parse a local timestamp to a naive datetime, or None if unparseable.
-    Tolerates both the new millisecond form ('2026-08-20T14:31:02.513') and
-    the legacy second-only form ('2026-08-20T14:31:02') so old log lines
-    still count/compare correctly."""
+    """Parse a log timestamp to a naive datetime, or None if unparseable.
+    Tolerates three shapes:
+      - legacy local, second-only:  '2026-08-20T14:31:02'
+      - legacy local, millis:       '2026-08-20T14:31:02.513'
+      - current UTC (Z-suffixed):   '2026-09-10T20:03:05.130Z'
+    The fractional seconds and any 'Z' suffix are dropped; the value is
+    returned as a naive datetime (wall-clock), so old and new entries are
+    comparable against each other and against other naive timestamps."""
     s = (s or "").strip()
     if not s:
         return None
+    # drop fractional seconds ('.513') and a trailing 'Z' (UTC marker)
     base = s.split(".", 1)[0]
+    if base.endswith("Z"):
+        base = base[:-1]
     try:
         return datetime.strptime(base, "%Y-%m-%dT%H:%M:%S")
     except Exception:
