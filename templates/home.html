@@ -54,8 +54,23 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
 .kv b{font-size:12px;color:var(--muted);font-weight:600}
 .kv span{font-family:var(--mono);font-size:15px}
 
+/* usage stats */
+.stats-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:16px;
+  padding-top:16px;border-top:1px solid var(--border)}
+.stat{flex:1;min-width:120px;background:var(--panel2);border:1px solid var(--border);
+  border-radius:10px;padding:12px 14px}
+.stat-value{display:block;font-family:var(--mono);font-size:26px;font-weight:800;
+  line-height:1.15}
+.stat-label{display:block;font-size:12px;color:var(--muted);margin-top:3px}
+.stat .accent-blue{color:var(--accent)}
+.stat .accent-teal{color:var(--teal)}
+.stat .accent-violet{color:var(--violet)}
+.reset-line{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.reset-note{font-size:12px;color:var(--faint)}
+
 /* buttons */
 .btns{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}
+.btns-inline{margin-top:0;margin-left:auto;align-items:center}
 .btn{font-size:13.5px;font-weight:600;padding:9px 15px;border-radius:8px;
   border:1px solid var(--border);background:var(--panel2);color:var(--fg);
   cursor:pointer}
@@ -77,6 +92,18 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
 .switch input:checked + .slider:before{transform:translateX(24px);background:#04121f}
 .toggle-row{display:flex;align-items:center;gap:14px}
 .toggle-state{font-family:var(--mono);font-weight:700;font-size:15px}
+
+/* pending DJ-additions list */
+.djadd-list{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+.djadd-item{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  background:var(--panel2);border:1px solid var(--border);
+  border-left:3px solid var(--good);border-radius:9px;padding:9px 13px}
+.djadd-item .num{font-family:var(--mono);font-weight:800;font-size:13px;color:var(--good)}
+.djadd-item .ttl{font-size:13.5px;color:var(--fg);flex:1;min-width:160px}
+.djadd-item .ago{font-family:var(--mono);font-size:12px;color:var(--faint);white-space:nowrap}
+.djadd-item a{font-size:12.5px;font-weight:600;color:var(--accent);text-decoration:none;white-space:nowrap}
+.djadd-item a:hover{text-decoration:underline}
+.djadd-empty{font-size:13px;color:var(--faint);font-style:italic;padding:4px 2px}
 
 /* update block */
 .upd{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -129,12 +156,40 @@ footer a:hover{color:var(--accent)}
       <div class="kv"><b>PID</b><span id="bot-pid">—</span></div>
       <div class="kv"><b>Uptime</b><span id="bot-uptime">—</span></div>
       <div class="kv"><b>State</b><span id="bot-state">—</span></div>
+      <div class="grow"></div>
+      <div class="btns btns-inline">
+        <button class="btn good"   id="b-start">▶ Start</button>
+        <button class="btn bad"    id="b-stop">⏹ Stop</button>
+        <button class="btn"        id="b-restart">↻ Restart</button>
+      </div>
     </div>
-    <div class="btns">
-      <button class="btn good"   id="b-start">▶ Start</button>
-      <button class="btn bad"    id="b-stop">⏹ Stop</button>
-      <button class="btn"        id="b-restart">↻ Restart</button>
+
+    <!-- usage counters -->
+    <div class="stats-row">
+      <div class="stat">
+        <span class="stat-value accent-blue" id="stat-session">0</span>
+        <span class="stat-label">💬 replies · this session</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value accent-teal" id="stat-total">0</span>
+        <span class="stat-label">📈 replies · all time</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value accent-violet" id="stat-servers">0</span>
+        <span class="stat-label">🌐 servers running it</span>
+      </div>
     </div>
+    <div class="reset-line">
+      <button class="btn" id="b-reset-stats">🗑 Reset “all time” counter</button>
+      <span class="reset-note">Zeros the lifetime total — this session’s count already resets on every start.</span>
+    </div>
+  </div>
+
+  <!-- ACTIVITY LOG (monospace) — sits right below Bot process -->
+  <div class="card">
+    <h2><span class="dot" style="background:var(--violet)"></span>Activity log</h2>
+    <p class="desc">Recent bot events — lookups, DJ suggestions, refreshes, toggles, errors. Auto-refreshes.</p>
+    <div class="log" id="log">loading…</div>
   </div>
 
   <!-- DJ LIST / LOOKUPS (teal) -->
@@ -158,6 +213,23 @@ footer a:hover{color:var(--accent)}
     <div class="upd-msg" id="dj-msg"></div>
   </div>
 
+  <!-- PENDING DJ ADDITIONS (green) — the /adddj drop-box checker -->
+  <div class="card">
+    <h2><span class="dot" style="background:var(--good)"></span>Pending DJ additions</h2>
+    <p class="desc">Community members use <code>/adddj</code> to suggest a new DJ. Each one lands
+      here (a GitHub issue in the repo) for you to review — <b>nothing is added to your
+      master list until you approve it</b>. The sheet is never touched automatically.</p>
+    <div class="toggle-row">
+      <span class="toggle-state" id="djadd-count" style="color:var(--good)">…</span>
+      <span class="upd-msg" id="djadd-ago" style="margin:0"></span>
+      <div class="grow"></div>
+      <a class="btn" id="djadd-repo" href="#" target="_blank" rel="noopener">📂 Open in GitHub</a>
+      <button class="btn" id="b-djaddcheck">🔎 Check now</button>
+    </div>
+    <div class="djadd-list" id="djadd-list"></div>
+    <div class="upd-msg" id="djadd-msg"></div>
+  </div>
+
   <!-- UPDATES (amber) -->
   <div class="card">
     <h2><span class="dot" style="background:var(--warn)"></span>Updates &amp; version</h2>
@@ -173,13 +245,6 @@ footer a:hover{color:var(--accent)}
       <button class="btn warn" id="b-update" disabled>⬇ Update &amp; restart</button>
     </div>
     <div class="upd-msg" id="upd-msg"></div>
-  </div>
-
-  <!-- ACTIVITY LOG (monospace) -->
-  <div class="card">
-    <h2><span class="dot" style="background:var(--violet)"></span>Activity log</h2>
-    <p class="desc">Recent bot events — lookups, refreshes, toggles, errors. Auto-refreshes.</p>
-    <div class="log" id="log">loading…</div>
   </div>
 
   <footer>
@@ -237,6 +302,53 @@ async function refreshStatus(){
   st.style.color = on ? 'var(--teal)' : 'var(--bad)';
   $('#dj-count').textContent = d.dj_count ?? '—';
   $('#dj-fresh').textContent = d.dj_freshness || '—';
+
+  // usage counters
+  const stt = d.stats || {};
+  $('#stat-session').textContent = stt.session ?? 0;
+  $('#stat-total').textContent   = stt.total   ?? 0;
+  $('#stat-servers').textContent = stt.servers ?? 0;
+
+  // pending DJ additions (the /adddj drop-box)
+  renderDjAdd(d.dj_add || {});
+}
+
+// ---- render the /adddj pending-queue -------------------------------------
+function renderDjAdd(dd){
+  const count = dd.count ?? 0;
+  const el = $('#djadd-count');
+  el.textContent = count ? count + (count === 1 ? ' pending' : ' pending') : 'none pending';
+  el.style.color = count ? 'var(--good)' : 'var(--faint)';
+  $('#djadd-ago').textContent = (dd.checked_ago_s||0) > 1 ? ('checked '+(dd.checked_ago_s)+'s ago') : 'just checked';
+
+  // GitHub link (stable, filters to our open label)
+  const repo = dd.repo || 'NWinnVR/VRCDJ_bot';
+  $('#djadd-repo').href = 'https://github.com/'+repo+'/issues?q=is:issue+is:open+label:dj-addition';
+
+  const list = $('#djadd-list');
+  list.textContent = '';
+  if(dd.error){
+    const e = document.createElement('div');
+    e.className = 'djadd-empty'; e.textContent = '⚠️ Couldn\'t reach GitHub: '+dd.error;
+    list.appendChild(e); return;
+  }
+  const issues = dd.issues || [];
+  if(!issues.length){
+    const e = document.createElement('div');
+    e.className = 'djadd-empty'; e.textContent = 'No DJ suggestions waiting — the queue is clear.';
+    list.appendChild(e); return;
+  }
+  issues.forEach(it=>{
+    const row = document.createElement('div'); row.className='djadd-item';
+    const num = document.createElement('span'); num.className='num'; num.textContent='#'+it.number;
+    const ttl = document.createElement('span'); ttl.className='ttl'; ttl.textContent=it.title||'';
+    const ago = document.createElement('span'); ago.className='ago';
+    ago.textContent = it.created_at ? new Date(it.created_at).toLocaleString() : '';
+    const a = document.createElement('a'); a.href=it.url||'#'; a.target='_blank'; a.rel='noopener';
+    a.textContent='review →';
+    row.append(num, ttl, ago, a);
+    list.appendChild(row);
+  });
 }
 
 // ---- poll /api/log -------------------------------------------------------
@@ -244,7 +356,7 @@ function levelClass(k, lvl){
   if(lvl==='error'||k.includes('error')) return 'err';
   if(lvl==='warn') return 'warn';
   if(['ready','toggle','dj_refresh','dj_auto_refresh'].includes(k)) return 'good';
-  if(['dj','vrcdn','djlineup','timeslots','event_lineup'].includes(k)) return 'info';
+  if(['dj','vrcdn','djlineup','timeslots','event_lineup','adddj'].includes(k)) return 'info';
   return '';
 }
 async function refreshLog(){
@@ -273,6 +385,15 @@ $('#b-start').onclick   = async()=>{ $('#b-start').disabled=true;  await post('/
 $('#b-stop').onclick    = async()=>{ $('#b-stop').disabled=true;   await post('/api/bot-stop');    refreshStatus(); };
 $('#b-restart').onclick = async()=>{ $('#b-restart').disabled=true;await post('/api/bot-restart'); refreshStatus(); };
 
+$('#b-reset-stats').onclick = async()=>{
+  if(!confirm('Reset the “all time” replies counter to 0? This can’t be undone.')) return;
+  const b = $('#b-reset-stats'); b.disabled = true;
+  const r = await post('/api/reset-stats');
+  b.disabled = false;
+  if(r.error){ alert('Reset failed: '+r.error); return; }
+  refreshStatus();
+};
+
 $('#dj-toggle').onchange = async(e)=>{
   const want = e.target.checked;
   const msg = $('#dj-msg');
@@ -291,6 +412,16 @@ $('#b-djrefresh').onclick = async()=>{
     const d = await (await fetch('/api/status')).json();
     $('#dj-msg').textContent = '✅ Loaded '+d.dj_count+' DJs — '+d.dj_freshness;
     refreshStatus(); }, 4000);
+};
+
+$('#b-djaddcheck').onclick = async()=>{
+  const b=$('#b-djaddcheck'); b.disabled=true;
+  $('#djadd-msg').textContent = '🔎 Checking GitHub…';
+  const r = await post('/api/dj-add-check');
+  b.disabled=false;
+  if(r.error){ $('#djadd-msg').textContent = '⚠️ '+r.error; return; }
+  $('#djadd-msg').textContent = '✅ '+(r.count||0)+' pending — just checked.';
+  renderDjAdd(r);
 };
 
 $('#b-check').onclick = async()=>{

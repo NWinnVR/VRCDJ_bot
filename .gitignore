@@ -46,3 +46,6 @@ desktop.ini
 .vscode/
 *.swp
 *.tmp
+
+# dashboard runtime log
+_dash_live.log

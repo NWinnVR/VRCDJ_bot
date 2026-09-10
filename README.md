@@ -7,9 +7,14 @@ link versions, and build DJ event time-slots in one message — no LLM, no
 accounts, no cloud, just your own Discord bot. Built to be self-hosted by
 **any community** that wants the same tools the author uses.
 
-> **v1.0** — versioning policy: the *second* number goes up with every add or
-> fix (`1.0 → 1.1 → 1.2`); the *first* number only changes on a major overhaul.
-> See [Releases](#releases--updating) and [`version.py`](version.py).
+> **v1.4** — versioning policy: the *second* number goes up with every add or
+> fix (`1.0 → 1.1 → 1.2 …`); the *first* number only changes on a major
+> overhaul. See [Releases](#releasing--updating) and [`version.py`](version.py).
+>
+> **What's new in 1.4:** `/adddj` — community members can suggest new DJs from
+> any server; suggestions land as GitHub issues the maintainer reviews. The
+> dashboard gained a **Pending DJ additions** checker, the usage counters, and
+> a tidied layout. See the [changelog](#changelog).
 
 ---
 
@@ -23,10 +28,16 @@ A small set of **slash commands** aimed at running VRChat DJ events:
 | `/vrcdn <url or name>` | Take one VRCDN URL (RTSP / MPEG-TS) or a streamer name and expand it into **all three** link versions (RTSP, MPEG-TS, preview). |
 | `/djlineup` | Label an event's time-slot lines **A–Z** so DJs sign up by letter, not by time. |
 | `/timeslots` | Generate a full DJ time-slot block from a start time, day, and slot count — the bot does the timezone math (DST-aware). |
+| `/adddj` | **Suggest a new DJ** for the master list — name + link required, genres / availability optional. A VRCDN link is expanded to all three versions for you. See [Suggesting a new DJ](#suggesting-a-new-dj-community). |
 | `/status` | Bot availability, DJ-list freshness, and the version. |
 | `/help` | List every command. |
-| `/on` · `/off` | Master kill-switch: pause or resume the bot answering. |
 | `/dj-refresh` | Re-pull the DJ list from the Google Sheet right now. |
+
+> **No `/on` / `/off` slash commands.** This bot is designed to run across
+> several servers at once, so the kill-switch is **not** a slash command anyone
+> can type. Only the operator — through the **password-protected dashboard**
+> (Start / Stop) — can pause or stop the bot. The `/status` command still *reports*
+> ON/OFF state; it just can't change it.
 
 There is also an **event auto-lineup**: post a line of time-slots (with the
 `<t:…:t>` timestamp format) in a bound channel and the bot labels them A–Z
@@ -106,11 +117,14 @@ That's the whole setup. Everything after that is optional.
 
 > **Who can use the commands?** By default, every member of the server can run
 > the read-only commands (`/dj`, `/vrcdn`, `/djlineup`, `/timeslots`,
-> `/status`, `/help`). The *control* commands (`/on`, `/off`, `/dj-refresh`)
-> are restricted in the Developer Portal under **Application Commands →
-> Permissions** (set them to your staff role) — or just don't assign them to
-> the server. The bot itself has no hard-coded staff list, so Discord is the
-> single place you control access.
+> `/status`, `/help`) — and `/adddj`, if the operator enabled it (see
+> [Suggesting a new DJ](#suggesting-a-new-dj-community)). The one *control*
+> command (`/dj-refresh`) should be restricted in the Developer Portal under
+> **Application Commands → Permissions** (set it to your staff role) — or just
+> don't assign it to the server. There is no `/on` / `/off` slash command at
+> all; the only kill-switch is the password-protected **dashboard** (Start /
+> Stop). The bot itself has no hard-coded staff list, so Discord is the single
+> place you control access.
 
 ### 2. Install
 
@@ -144,12 +158,22 @@ DISCORD_BOT_TOKEN=your-token-here
 # optional:
 DASHBOARD_PASSWORD=a-long-random-password
 # DASHBOARD_PORT=8720
+
+# /adddj (optional but recommended) — a GitHub token with `repo` scope on the
+# target repo. Lets the bot post DJ suggestions as issues and lets the
+# dashboard show them. See "Suggesting a new DJ" below.
+#GH_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 - `DISCORD_BOT_TOKEN` — **required**. From step 1.2.
 - `DASHBOARD_PASSWORD` — optional. If blank, the dashboard prints a random
   one **once** on first start. Set your own for a server.
 - `DASHBOARD_PORT` — optional, default `8720`.
+- `GH_TOKEN` — optional. Needed for `/adddj` (and the dashboard's Pending DJ
+  additions checker). A *classic* GitHub token with `repo` scope on the target
+  repo is the simplest choice; a *fine-grained* token with `Issues: Read &
+  write` also works. Without it, `/adddj` tells the user it can't submit, and
+  the checker shows an error. **Never commit `bot.env`** — it's git-ignored.
 
 ### 4. Run
 
@@ -159,9 +183,9 @@ DASHBOARD_PASSWORD=a-long-random-password
 You'll see:
 
 ```
-[dashboard] VRCDJ_bot v1.0
+[dashboard] VRCDJ_bot v1.4
 [dashboard] Dashboard: http://192.168.x.x:8720
-[bot] ready as YourBot#1234 — 9 commands synced (v1.0)
+[bot] ready as YourBot#1234 — 8 commands synced (v1.4)
 [bot] DJ list: 402 entries — ...
 ```
 
@@ -176,15 +200,20 @@ network, sign in with the password, and you have the live dashboard.
 ## The DJ master list
 
 The bot reads its DJ list from a **public Google Sheet** ("anyone with the
-link can view") and downloads it as CSV — **no API key needed**. The default
-sheet is the community master list baked into the code.
+link can view") and downloads it as CSV — **no API key needed**.
 
-To point the bot at **your own** sheet (your community's DJs):
+**By default, every install — including someone who downloads the repo and
+runs their own copy — pulls the *same* community master list that ships in the
+code.** It's the largest public list of its kind, so that's the point: you get
+the full list out of the box, no configuration required.
+
+To point the bot at a **different** sheet (your community's DJs):
 
 1. Make your Google Sheet shareable with "Anyone with the link → Viewer".
-2. Set `DJ_SHEET_URL` in `bot.env` to your sheet's CSV export link:
-   `https://docs.google.com/spreadsheets/d/<YOUR_SHEET_ID>/export?format=csv`
-   (or the `/e/<ID>/pub?output=csv` form — both are supported).
+2. Set `DJ_SHEET_URL` in `bot.env` to your sheet's CSV link — the
+   publish-to-web form is the most reliable:
+   `https://docs.google.com/spreadsheets/d/e/<ID>/pub?output=csv`
+   (the `…/export?format=csv` form is also supported).
 3. Restart, or hit **Re-pull the DJ sheet** on the dashboard.
 
 Expected columns (case-insensitive, extra columns ignored): `Name`, plus any
@@ -196,18 +225,87 @@ re-pull if it goes stale).
 
 ---
 
+## Suggesting a new DJ (community)
+
+A lot of communities have DJs that aren't on the master list yet. Rather than
+letting random people edit the shared sheet, `/adddj` lets **any member of any
+server the bot is in** submit a suggestion — the bot formats it in the master
+list's style and drops it somewhere the maintainer can review.
+
+**How it works:**
+
+1. The user runs `/adddj` with a DJ name + one link, plus optional genres and
+   availability.
+2. If the link is a VRCDN URL (RTSP or MPEG-TS), the bot expands it to all
+   three versions using the **exact same logic as `/vrcdn`** — so the
+   suggestion arrives fully formatted, ready to paste into the sheet.
+   (Twitch / other links are kept as-is.)
+3. The bot POSTs the formatted block as a **GitHub issue** on the target repo,
+   labelled `dj-addition`.
+4. The maintainer opens the **Pending DJ additions** card on the dashboard,
+   sees the badge, copies the formatted block into the master list, and closes
+   the issue.
+
+**For the bot operator (you):**
+
+- Set `GH_TOKEN` in `bot.env` (see [Configure](#3-configure)). Without it the
+  command is still visible but tells users it can't submit.
+- The dashboard's **Pending DJ additions** card polls the GitHub Issues API
+  (read-only, no token needed) and shows:
+  - a **new** badge when a suggestion is fresh (less than 7 days old),
+  - the DJ name, how many days it's been pending, and a jump-to-issue link,
+  - a **Check now** button if you want to force a fresh poll.
+- After copying a suggestion into the sheet, **close the issue** from GitHub —
+  the badge disappears on the next poll.
+
+**For the bot user (anyone in a server the bot is in):**
+
+```
+/adddj name: "Aurora"
+     link: rtspt://stream.vrcdn.live/live/aurora
+     genres: "House, Techno"           (optional)
+     availability: "Fri/Sat nights"   (optional)
+```
+
+You'll get a confirmation with the issue number and a link to it. The
+maintainer handles the rest — you don't need a GitHub account or a Google
+Sheet to suggest a DJ. 🎧
+
+**For forkers:** by default `/adddj` targets the *upstream* repo
+(`NWinnVR/VRCDJ_bot`) — the maintainer's drop box. If you want suggestions to
+land on **your own** fork instead, set `VRCDJ_REPO` in `bot.env` to
+`<your-user>/<your-repo>` (or `https://github.com/<user>/<repo>`) and point
+`GH_TOKEN` at a token with issue-write access on that repo.
+
+> **Why GitHub issues and not pastebin / the sheet?** GitHub is free, has no
+> rate limit at this scale, keeps the history in the same repo as the bot, and
+> doesn't require the user to have any account. Issues are the maintainer's
+> inbox, and they're closed once the DJ is added — so the "pending" state
+> never drifts out of sync.
+
+---
+
 ## The dashboard (LAN web portal)
 
-Dark-themed, mobile-friendly, password-gated. Sections:
+Dark-themed, mobile-friendly, password-gated. Sections (in this order):
 
-- **Bot process** — running / stopped, PID, uptime, and Start / Stop /
-  Restart buttons (the watchdog keeps it alive).
-- **DJ list & lookups** — the master **ON/OFF kill-switch**, DJ count,
-  list freshness, and a one-click **Re-pull** button.
+- **Bot process** — running / stopped, PID, uptime, and the **Start / Stop /
+  Restart** buttons (inline on the status row — **Start / Stop is the
+  kill-switch**, the only place you can pause or stop the bot; the watchdog
+  keeps it alive). Plus **usage counters**: 💬 replies this session, 📈
+  replies all-time (persistent, with a Reset button), and 🌐 how many servers
+  the bot is running in.
+- **Activity log** — recent lookups, DJ suggestions, refreshes, toggles, and
+  errors.
+- **DJ list & lookups** — DJ count, list freshness, and a one-click
+  **Re-pull** button.
+- **Pending DJ additions** — the `/adddj` review queue: how many community
+  suggestions are waiting, a **new** badge on fresh ones, each entry with the
+  DJ's name + a jump-to-issue link, and a **Check now** button. See
+  [Suggesting a new DJ](#suggesting-a-new-dj-community).
 - **Updates & version** — current version, **Check for updates** (queries
   GitHub Releases), and **Update & restart** (pulls the latest code and
   restarts the bot — no manual file copying).
-- **Activity log** — recent lookups, refreshes, toggles, and errors.
 
 The dashboard binds to `0.0.0.0` so it's reachable across your local network.
 **Keep it there** — don't expose the dashboard port to the public internet.
@@ -220,7 +318,7 @@ Use the strong password; it's the gate to the controls.
 ### How versioning works
 
 The version lives in exactly one place: [`version.py`](version.py)
-(`VERSION = "1.0"`). It flows to the dashboard, the bot's startup log, and
+(`VERSION = "1.4"`). It flows to the dashboard, the bot's startup log, and
 GitHub Releases.
 
 - **Minor** (default): every add or fix bumps the *second* number:
@@ -252,6 +350,38 @@ On the machine where the bot runs, either:
 
 Because it's a public repo, the update path is plain `git pull` — no private
 file copying, no zips.
+
+---
+
+## Changelog
+
+- **v1.4** — `/adddj` community DJ suggestions (name + link required, genres
+  / availability optional; a VRCDN link auto-expands to all three versions
+  using the `/vrcdn` engine); GitHub **issue** drop-box (no pastebin, no sheet
+  editing, no sheet access needed); dashboard **Pending DJ additions** checker
+  (new badge + Check now); dashboard layout tidy (Start / Stop / Restart inline
+  on the status row, activity log moved under Bot process); **bundles the full
+  feature set into the released code** — usage counters, the `/on`·`/off`
+  removal, and the distinct process names; README + setup + forker guidance
+  refresh.
+- **v1.3** — usage counters (replies this session, all-time total with a
+  Reset button, live server count).
+- **v1.2** — dashboard-hang fix (git-spawn robustness); `/on`·`/off` removed
+  (the dashboard is the only kill-switch); distinct process names
+  (`vrcjd.exe` / `vrcjb.exe`) so it's easy to tell from other bots in Task
+  Manager; default master list.
+- **v1.1** — DJ sheet-URL wiring fix (the sheet URL now flows through
+  `dj_sheet`), runtime cache ignored.
+- **v1.0** — initial public release: `/dj`, `/vrcdn`, `/djlineup`,
+  `/timeslots`, `/status`, `/help`, `/dj-refresh` (plus the then-current
+  `/on`·`/off`), the event auto-lineup, the LAN web dashboard, portable
+  Windows/macOS/Linux, and the duplicate-instance guard.
+
+> **Note on v1.2 / v1.3:** those release *notes* describe the features, but
+> the earlier tags were cut before the code for them was committed. **v1.4 is
+> the first release that actually ships the complete feature set** — if you
+> already downloaded a v1.2 / v1.3 zip, just update to v1.4 (or `git pull` on
+> `main`).
 
 ---
 
@@ -299,6 +429,8 @@ VRCDJ_bot/
 ├── vrcdn.py             # VRCDN URL parsing / expansion
 ├── event_post.py        # event auto-lineup logic
 ├── discord_send.py      # chunked Discord message sender
+├── dj_add.py            # /adddj — classify + format a DJ suggestion (pure)
+├── gh_add.py            # /adddj — GitHub issue drop-box (create + list)
 ├── bot_config.py        # config (sheet URL, defaults)
 ├── bot_state.py         # runtime state + duplicate-instance guard
 ├── botlog.py            # structured activity log
@@ -325,6 +457,22 @@ have. The only guard is against a *second copy of VRCDJ_bot itself*
 
 If two bots would use the **same dashboard port**, set a different
 `DASHBOARD_PORT` for one of them.
+
+### Telling VRCDJ_bot apart from other bots in Task Manager
+
+The launchers run the code under **distinct process names** instead of a
+generic `python.exe`, so when several bots are on one machine you can see at a
+glance which is which:
+
+| Process | What it is |
+|---|---|
+| `vrcjd.exe` | the **dashboard** (the Flask web portal) |
+| `vrcjb.exe` | the **bot** (the Discord process the dashboard spawns) |
+
+Any bot you don't rename (e.g. one running as plain `python.exe`) is *not*
+VRCDJ_bot. These names are just friendly copies of the venv's interpreter
+inside `venv/`, recreated automatically by `install.bat` / `run.sh`, so a fresh
+machine gets them too.
 
 ---
 

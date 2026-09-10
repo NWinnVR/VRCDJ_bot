@@ -42,17 +42,31 @@ def _git(*args: str) -> str | None:
     """Run a git command in this directory; return stripped stdout or None.
 
     Spawned with CREATE_NO_WINDOW on Windows so the child never grabs a
-    visible console (no cmd.exe flash on each cache miss).
+    visible console.  stdin is DEVNULL so git can never block reading
+    stdin.  On timeout the child is explicitly killed AND its pipes are
+    drained, so a wedged git.exe cannot leave a dangling pipe that keeps
+    the calling thread alive forever.
     """
     try:
-        p = subprocess.run(
+        p = subprocess.Popen(
             ["git", "-C", HERE, *args],
-            capture_output=True, text=True, timeout=_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             creationflags=_NO_WINDOW,
         )
+        try:
+            out, _err = p.communicate(timeout=_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            try:
+                p.communicate(timeout=2)
+            except Exception:
+                pass
+            return None
         if p.returncode != 0:
             return None
-        return (p.stdout or "").strip()
+        return (out or b"").decode("utf-8", "replace").strip()
     except Exception:
         return None
 

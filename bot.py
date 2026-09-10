@@ -16,13 +16,17 @@ WHAT IT DOES (DJ + time-slot tools only — NO LLM, NO model, NO prompting)
                       of a time-zone.
   - /timeslots <start> <count> → generate the whole block of `<t:…:t>` DJ
                       slots (DST-aware timezone math).
-  - /status         → on/off + DJ list freshness + version.
+  - /status         → DJ list freshness + version.
   - /help           → the command reference.
-  - /on · /off · /dj-refresh → controls (who may run them is set server-side
+  - /dj-refresh     → staff: re-pull the DJ list now (who may run it is set
     in Discord's per-command permissions, NOT in this code).
   - EVENT AUTO-LINEUP → paste a full event post (3+ time-slot lines each with
     a DJ name) and it's answered with every DJ's links — @mention me to
     trigger it in any channel, or drop it in a configured "lineup channel".
+
+  NOTE: there is deliberately NO /on · /off slash command.  The bot's
+  master kill-switch is owned by the dashboard (password-gated) so that
+  members of other servers can't pause a bot that isn't theirs.
 
 WHAT THIS IS NOT (deliberately stripped vs. the private WyBot)
   - No LLM / no local model / no prompting / no @-mention Q&A.
@@ -100,6 +104,8 @@ import vrcdn          # noqa: E402  (/vrcdn — expand one VRCDN URL to all thre
 import djlineup       # noqa: E402  (/djlineup — A–Z letters on time-slot lines)
 import timeslots      # noqa: E402  (/timeslots — generate the <t:…:t> DJ-slot block)
 import discord_send   # noqa: E402  (2000-char-safe sends)
+import dj_add         # noqa: E402  (/adddj — classify + format a DJ suggestion)
+import gh_add         # noqa: E402  (/adddj — the GitHub issue drop-box)
 
 
 # ----------------------------- config ----------------------------------------
@@ -304,11 +310,24 @@ class Bot(discord.Client):
 
     # ---- lifecycle ----------------------------------------------------------
     async def on_ready(self):
+        # A fresh bot session begins — zero the session counter (the lifetime
+        # total in bot_state.json is left alone).
+        try:
+            await asyncio.to_thread(bot_state.reset_session)
+        except Exception:
+            pass
+        # Record how many servers we're in (Discord exposes this via bot.guilds).
+        try:
+            await asyncio.to_thread(bot_state.set_guild_count, len(self.guilds))
+        except Exception:
+            pass
         # Register every command ONCE, global scope.
         self.add_public(self.cmd_dj, name="dj",
                         description="Look up one or more DJs (comma-separated for several) — stream links from the master list.")
         self.add_public(self.cmd_vrcdn, name="vrcdn",
                         description="One VRCDN URL (RTSP / MPEG-TS) or a streamer name, expanded to all three link versions.")
+        self.add_public(self.cmd_adddj, name="adddj",
+                        description="Suggest a new DJ for the master list — name + link (Twitch or VRCDN), optional genres.")
         self.add_public(self.cmd_djlineup, name="djlineup",
                         description="Label an event's time-slot lines A–Z so DJs sign up by letter, not time.")
         self.add_public(self.cmd_timeslots, name="timeslots",
@@ -318,11 +337,10 @@ class Bot(discord.Client):
         self.add_public(self.cmd_help, name="help",
                         description="Show all the commands I can do.")
 
-        # Controls — who can RUN them is Discord's per-command permissions.
-        self.add_public(self.cmd_on, name="on",
-                        description="Switch the bot ON.")
-        self.add_public(self.cmd_off, name="off",
-                        description="Switch the bot OFF.")
+        # Controls (staff-only via Discord per-command permissions).
+        # /on · /off are deliberately NOT registered — only the dashboard
+        # (behind its password) can pause/resume the bot.  Other servers'
+        # members must not be able to switch it off.
         self.add_public(self.cmd_dj_refresh, name="dj-refresh",
                         description="Re-pull the DJ list from the Google Sheet now.")
 
@@ -371,6 +389,32 @@ class Bot(discord.Client):
                 pass
             await asyncio.sleep(1800)
 
+    # ---- usage counters -----------------------------------------------------
+    # discord.py fires `app_command_completion` only after a command runs
+    # successfully (the tree's `else` branch, i.e. the user actually got a
+    # response). That's the exact moment we want to count a reply — so this
+    # fires once per answered command and never on errors.
+    async def on_app_command_completion(self, interaction: discord.Interaction, command):
+        try:
+            await asyncio.to_thread(bot_state.bump_reply)
+        except Exception:
+            pass  # counting is best-effort; never let it break a reply
+
+    # ---- server (guild) tracking -------------------------------------------
+    # Keep the "Servers" counter live: refresh it when a server adds the bot
+    # (guild_join) or kicks it (guild_remove). on_ready sets the initial value.
+    async def on_guild_join(self, guild: discord.Guild):
+        try:
+            await asyncio.to_thread(bot_state.set_guild_count, len(self.guilds))
+        except Exception:
+            pass
+
+    async def on_guild_remove(self, guild: discord.Guild):
+        try:
+            await asyncio.to_thread(bot_state.set_guild_count, len(self.guilds))
+        except Exception:
+            pass
+
     # ---- DJ commands --------------------------------------------------------
     async def cmd_dj(self, ctx: discord.Interaction, name: str):
         err = lookup_unavailable_error()
@@ -411,6 +455,74 @@ class Bot(discord.Client):
         username = res["username"]
         botlog.log("vrcdn", who=asker, guild=guild, detail=username)
         await discord_send.send_long(ctx, vrcdn.render(username))
+
+    async def cmd_adddj(self, ctx: discord.Interaction,
+                        name: str, link: str,
+                        genres: Optional[str] = None,
+                        availability: Optional[str] = None):
+        """`/adddj` — a community member suggests a new DJ for the master list.
+
+        - `name` + `link` are REQUIRED. If the link is a Twitch URL it's kept
+          as-is; if it's a VRCDN URL (or a bare streamer name) it's expanded
+          with the same /vrcdn engine into all three VRCDN links.
+        - `genres` / `availability` are OPTIONAL.
+        The suggestion is formatted the master-list way and pushed as a GitHub
+        issue in the owner's repo (the "drop-box"). It NEVER touches the Google
+        Sheet or repo files — the owner reviews it (dashboard checker) and adds
+        it manually.
+        """
+        err = lookup_unavailable_error()
+        if err:
+            await ctx.response.send_message(err)
+            return
+        asker = ctx.user.name
+        guild = ctx.guild.name if ctx.guild else "DM"
+
+        # 1. classify + format (pure, deterministic, no network)
+        text, cls = dj_add.render_block(name, link, genres, availability)
+        if cls.get("kind") == "bad":
+            botlog.log("adddj", who=asker, guild=guild,
+                       detail=f"rejected: {cls.get('message')!r} link={link!r}")
+            await ctx.response.send_message(
+                "⚠️ I need the DJ's name **and** a link. "
+                "Twitch or VRCDN (RTSP / MPEG-TS / preview) — or just their "
+                "streamer name — for the link. Try again, e.g. "
+                "`/adddj Hyndal https://twitch.tv/hyndal`.")
+            return
+
+        # 2. build the issue payload
+        payload = dj_add.issue_payload(name, link, genres, availability,
+                                       submitter=asker, guild=guild)
+
+        # 3. push to the GitHub drop-box. Token (if any) comes from the
+        #    environment — it is never logged or echoed here.
+        token = os.environ.get("GH_TOKEN", "").strip()
+        result = await asyncio.to_thread(
+            gh_add.create_issue, payload["title"], payload["body"],
+            payload["labels"], token)
+
+        if result.get("ok"):
+            botlog.log("adddj", who=asker, guild=guild,
+                       detail=f"{name!r} {link!r} → {result.get('url')}")
+            await ctx.response.send_message(
+                f"✅ **{name}** submitted for the master list!\n\n"
+                f"Here's what I sent (copy-paste ready):\n\n{text}\n\n"
+                f"📮 It's in the owner's review queue: "
+                f"{result.get('url')}\n"
+                f"*You'll be added once the owner approves — nothing is added "
+                f"to the public list until they review it.*")
+        else:
+            # Suggestion was NOT delivered — be honest, and hand over the
+            # formatted block so the host can send it to the owner directly.
+            botlog.log("adddj_submit_failed", who=asker, guild=guild,
+                       detail=f"{name!r} {link!r} → {result.get('error')}",
+                       level="error")
+            await ctx.response.send_message(
+                "⚠️ I couldn't submit that to the review queue right now "
+                f"({result.get('error', 'unknown error')}).\n\n"
+                "Here's the formatted suggestion so you can send it to the "
+                "owner manually:\n\n"
+                "```md\n" + text + "\n```")
 
     async def cmd_djlineup(self, ctx: discord.Interaction, times: str):
         """Label a pasted block of time-slot lines with A–Z letter emotes.
@@ -500,6 +612,11 @@ class Bot(discord.Client):
             "🔗 **VRCDN**",
             "  • `/vrcdn <url>` — paste ONE VRCDN link (RTSP or MPEG-TS) — or just "
             "the name — and I'll give you all three: RTSP, MPEG-TS, and host preview",
+            "  • `/adddj <name> <link>` — **suggest a new DJ** for the master list. "
+            "Twitch links are used as-is; VRCDN links (or just the streamer name) "
+            "get expanded to all three links. Optional: `genres:` and "
+            "`availability:`. It goes to the owner's review queue — you'll be "
+            "added once it's approved",
             "",
             "🕐 **Time slots**",
             "  • `/djlineup <times>` — paste an event's ham-time slots and I'll "
@@ -517,26 +634,16 @@ class Bot(discord.Client):
             "post every DJ's links, no command needed.",
             "",
             "📊 **Info**",
-            "  • `/status` — am I on/off, DJ list freshness, version",
+            "  • `/status` — bot version + DJ list freshness",
             "  • `/help` — this message",
             "",
-            "🛠️ **Controls** (`/on` · `/off` · `/dj-refresh`)",
-            "  • For staff — who can use them is set by the server admins in "
-            "Discord's per-command permissions.",
+            "🛠️ **Staff** (`/dj-refresh`)",
+            "  • Re-pull the DJ list now — who can run it is set by the server "
+            "admins in Discord's per-command permissions.",
         ]
         await discord_send.send_long(ctx, "\n".join(lines))
 
-    # ---- controls -----------------------------------------------------------
-    async def cmd_on(self, ctx: discord.Interaction):
-        bot_state.set_enabled(True, by=str(ctx.user.id))
-        botlog.log("toggle", who=ctx.user.name, detail="ON")
-        await ctx.response.send_message("✅ Bot is now **ON**.")
-
-    async def cmd_off(self, ctx: discord.Interaction):
-        bot_state.set_enabled(False, by=str(ctx.user.id))
-        botlog.log("toggle", who=ctx.user.name, detail="OFF")
-        await ctx.response.send_message("🛑 Bot is now **OFF**.")
-
+    # ---- controls (dashboard-only kill-switch; no /on /off slash cmds) ----
     async def cmd_dj_refresh(self, ctx: discord.Interaction):
         await ctx.response.send_message("🔄 Re-pulling the DJ sheet…")
         try:

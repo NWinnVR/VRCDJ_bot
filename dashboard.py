@@ -50,6 +50,7 @@ import botlog           # noqa: E402
 import dj_sheet         # noqa: E402
 import repo_version     # noqa: E402
 import envload          # noqa: E402  (tiny dependency-free .env loader)
+import gh_add           # noqa: E402  (the /adddj drop-box — GitHub issue reader)
 
 # Load bot.env (git-ignored) into the environment BEFORE we read PORT /
 # DASHBOARD_PASSWORD / DASHBOARD_SECRET below, so a single .env file is the
@@ -135,6 +136,21 @@ class BotManager:
         """Prefer the running interpreter (it has the venv)."""
         return sys.executable or "python"
 
+    @staticmethod
+    def _bot_python() -> str:
+        """Interpreter used to spawn the BOT child process.
+
+        Prefers `venv\\Scripts\\vrcjb.exe` — a copy of the venv's python.exe
+        that makes the bot show up as **vrcjb.exe** in Task Manager instead
+        of a generic python.exe (so it's trivially distinguishable from
+        WyBot, which runs as plain python.exe).  Falls back to the normal
+        interpreter if the copy doesn't exist (e.g. before install.bat).
+        """
+        candidate = str(BASE / "venv" / "Scripts" / "vrcjb.exe")
+        if os.name == "nt" and os.path.exists(candidate):
+            return candidate
+        return BotManager._python()
+
     def _spawn(self) -> None:
         with self._lock:
             if self._proc and self._proc.poll() is None:
@@ -145,7 +161,7 @@ class BotManager:
             # don't need to inject it here.
             try:
                 self._proc = subprocess.Popen(
-                    [BotManager._python(), str(BASE / "bot.py")],
+                    [BotManager._bot_python(), str(BASE / "bot.py")],
                     cwd=str(BASE),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
@@ -335,6 +351,8 @@ def home():
         "enabled": bot_state.is_enabled(),
         "dj_count": _safe_count_djs(),
         "dj_freshness": _safe_freshness(),
+        "stats": _safe_stats(),
+        "dj_add": _safe_dj_add(),
         "commit": _safe_commit(),
         "lan_url": _lan_url(),
         "csrf": _csrf_token(),
@@ -350,8 +368,21 @@ def api_status():
         "enabled": bot_state.is_enabled(),
         "dj_count": _safe_count_djs(),
         "dj_freshness": _safe_freshness(),
+        "stats": _safe_stats(),
+        "dj_add": _safe_dj_add(),
         "commit": _safe_commit(),
     })
+
+
+@app.route("/api/dj-add-check", methods=["POST"])
+def api_dj_add_check():
+    """Force a fresh GitHub read of the pending-DJ queue (busts the 60s cache).
+    CSRF-protected like every other state-changing POST."""
+    if not _check_csrf():
+        return jsonify({"error": "csrf"}), 403
+    data = _safe_dj_add(force=True)
+    botlog.log("dj_add_check", detail=f"dashboard → {data['count']} pending")
+    return jsonify(data)
 
 
 @app.route("/api/toggle", methods=["POST"])
@@ -497,6 +528,20 @@ def api_bot_start():
     return jsonify({"ok": True, "starting": True})
 
 
+@app.route("/api/reset-stats", methods=["POST"])
+def api_reset_stats():
+    """Zero the lifetime 'Total replies' counter (session resets on next start).
+    Logged and reversible-by-hand only — the data is not recoverable."""
+    if not _check_csrf():
+        return jsonify({"error": "csrf"}), 403
+    try:
+        bot_state.reset_total()
+        botlog.log("reset_stats", detail="dashboard → Total replies reset to 0")
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)[:200]}), 500
+    return jsonify({"ok": True})
+
+
 # ---- helpers ----------------------------------------------------------------
 def _safe_count_djs() -> int:
     try:
@@ -512,11 +557,72 @@ def _safe_freshness() -> str:
         return "unknown"
 
 
+def _safe_stats() -> dict:
+    """Usage counters, never raising. Returns {session, total, servers}."""
+    try:
+        st = bot_state.get_stats()
+    except Exception:
+        st = {"session_replies": 0, "total_replies": 0}
+    servers = 0
+    try:
+        servers = int(bot_state._read_json(
+            bot_state.LIFECYCLE_PATH, bot_state._LIFECYCLE_DEFAULTS
+        ).get("guild_count", 0))
+    except Exception:
+        servers = 0
+    return {"session": int(st.get("session_replies", 0)),
+            "total": int(st.get("total_replies", 0)),
+            "servers": servers}
+
+
 def _safe_commit() -> str:
     try:
         return repo_version.get_local_head() or "unknown"
     except Exception:
         return "unknown"
+
+
+# ---- /adddj drop-box checker (GitHub issues, cached) -----------------------
+# The dashboard polls /api/status every few seconds, so we cache the GitHub
+# read for 60s to avoid hammering the API. A manual "Check now" busts the cache.
+_DJADD_CACHE = {"ts": 0.0, "data": None}
+_DJADD_TTL = 60.0
+
+
+def _safe_dj_add(force: bool = False) -> dict:
+    """Pending DJ suggestions (open issues labelled `dj-addition`), cached 60s.
+
+    Returns {count, issues:[...], checked_ago_s, error?} — never raises.
+    Reading a public repo needs NO token; with GH_TOKEN set it just has more
+    headroom. We list open issues and filter to our label CLIENT-SIDE (the
+    GitHub `labels=` query param has been flaky), which is more robust.
+    """
+    now = time.time()
+    if not force and _DJADD_CACHE["data"] is not None and (now - _DJADD_CACHE["ts"]) < _DJADD_TTL:
+        data = dict(_DJADD_CACHE["data"])
+        data["checked_ago_s"] = int(now - _DJADD_CACHE["ts"])
+        return data
+
+    token = os.environ.get("GH_TOKEN", "").strip()
+    # label="" → NO `labels=` query param (it's been flaky / returns empty
+    # even when the issue has the label). List ALL open issues and filter
+    # client-side, which is the robust path.
+    res = gh_add.list_open_issues(label="", token=token)
+    all_issues = res.get("issues", []) if res.get("ok") else []
+    # Filter to our label client-side (robust against the flaky labels= param).
+    mine = [i for i in all_issues if "dj-addition" in (i.get("labels") or [])]
+    # Newest first for the dashboard list.
+    mine.sort(key=lambda i: i.get("created_at") or "", reverse=True)
+    data = {
+        "count": len(mine),
+        "issues": mine,
+        "checked_ago_s": 0,
+        "repo": gh_add._repo(),
+        "error": None if res.get("ok") else res.get("error"),
+    }
+    _DJADD_CACHE["ts"] = now
+    _DJADD_CACHE["data"] = data
+    return data
 
 
 def _lan_url() -> str:

@@ -44,6 +44,16 @@ if not exist "bot.env" (
     echo [!] Edit bot.env and paste your DISCORD_BOT_TOKEN, then re-run run_dashboard.bat.
 )
 
+REM --- distinct process names (Task Manager shows vrcjd.exe / vrcjb.exe) --
+REM Copies of the venv's python.exe under friendly names.  This makes VRCDJ_bot
+REM trivially distinguishable from WyBot (which runs as plain python.exe) when
+REM both are on the same machine.  Safe to re-run; just refreshes the copies.
+if not exist "venv\Scripts\vrcjd.exe" (
+    echo [i] Creating vrcjd.exe (dashboard) + vrcjb.exe (bot) process names...
+    copy /y "venv\Scripts\python.exe" "venv\Scripts\vrcjd.exe" >nul
+    copy /y "venv\Scripts\python.exe" "venv\Scripts\vrcjb.exe" >nul
+)
+
 echo.
 echo == install complete ==
 echo Next:  edit bot.env (add your token), then double-click run_dashboard.bat

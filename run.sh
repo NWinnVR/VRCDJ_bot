@@ -22,7 +22,19 @@ if [ ! -f "bot.env" ]; then
     exit 1
 fi
 
+# --- distinct process names (ps shows vrcjd / vrcjb, not generic python) ---
+# Copies of the venv's python so VRCDJ_bot is distinguishable from WyBot
+# when both run on the same machine.  Safe to re-run.
+if [ ! -x "venv/bin/vrcjd" ]; then
+    cp venv/bin/python venv/bin/vrcjd
+    cp venv/bin/python venv/bin/vrcjb
+    echo "[i] Created vrcjd (dashboard) + vrcjb (bot) process names."
+fi
+
+PY="venv/bin/vrcjd"
+[ -x "$PY" ] || PY="venv/bin/python"
+
 echo
-echo "[i] Starting VRCDJ_bot (dashboard + bot)..."
+echo "[i] Starting VRCDJ_bot (dashboard: ${PY}  ·  bot: vrcjb)..."
 echo
-exec venv/bin/python dashboard.py
+exec "$PY" dashboard.py

@@ -16,4 +16,9 @@ if not exist "bot.env" (
     pause & exit /b 1
 )
 
-venv\Scripts\python.exe bot.py
+REM Prefer vrcjb.exe (shows as "vrcjb.exe" in Task Manager, distinct from WyBot's python.exe).
+if exist "venv\Scripts\vrcjb.exe" (
+    venv\Scripts\vrcjb.exe bot.py
+) else (
+    venv\Scripts\python.exe bot.py
+)

@@ -134,6 +134,17 @@ def heartbeat() -> None:
         _atomic_write(LIFECYCLE_PATH, json.dumps(data, indent=2))
 
 
+def set_guild_count(n: int) -> None:
+    """Record how many servers the bot is currently in (from discord.guilds).
+    The dashboard reads this from the lifecycle file for its Servers counter.
+    Called from on_ready and on_guild_join / on_guild_remove."""
+    with _lock:
+        data = _read_json(LIFECYCLE_PATH, _LIFECYCLE_DEFAULTS)
+        data["guild_count"] = int(n)
+        data["guild_at"] = time.time()
+        _atomic_write(LIFECYCLE_PATH, json.dumps(data, indent=2))
+
+
 def duplicate_info() -> dict | None:
     """Check whether another live instance is running (heartbeat < 12 s old,
     different PID). Returns {pid, last_beat, age_s} or None."""
@@ -154,6 +165,73 @@ def duplicate_info() -> dict | None:
             "age_s": round(age, 1),
             "state": data.get("state"),
         }
+
+
+# ---------------------------------------------------------------------------
+# Usage counters
+# ---------------------------------------------------------------------------
+# Two counters, both in bot_state.json (so they survive dashboard restarts and
+# are visible to the web dashboard):
+#
+#   session_replies  — replies since the CURRENT bot start. Reset to 0 on each
+#                      on_ready (a fresh bot process), so it tracks THIS session.
+#   total_replies    — every reply across the bot's whole life. Never reset by
+#                      a restart; only the operator can zero it (Reset button).
+#
+# Both are bumped by exactly one call site (on_app_command_completion in
+# bot.py) — i.e. once per command that the user actually got a response to.
+
+
+def _stats_default() -> dict:
+    return {"session_replies": 0, "total_replies": 0}
+
+
+def _read_stats() -> dict:
+    data = _read_json(STATE_PATH, _STATE_DEFAULTS)
+    return {
+        "session_replies": int(data.get("session_replies", 0)),
+        "total_replies": int(data.get("total_replies", 0)),
+    }
+
+
+def bump_reply() -> dict:
+    """Record one successful command reply. Returns the new counter values."""
+    with _lock:
+        data = _read_json(STATE_PATH, _STATE_DEFAULTS)
+        data["session_replies"] = int(data.get("session_replies", 0)) + 1
+        data["total_replies"] = int(data.get("total_replies", 0)) + 1
+        _atomic_write(STATE_PATH, json.dumps(data, indent=2))
+        return {
+            "session_replies": data["session_replies"],
+            "total_replies": data["total_replies"],
+        }
+
+
+def reset_session() -> dict:
+    """Start a fresh session: zero the session counter (keep the lifetime
+    total). Called once from on_ready."""
+    with _lock:
+        data = _read_json(STATE_PATH, _STATE_DEFAULTS)
+        data["session_replies"] = 0
+        data["total_replies"] = int(data.get("total_replies", 0))
+        _atomic_write(STATE_PATH, json.dumps(data, indent=2))
+        return {"session_replies": 0, "total_replies": data["total_replies"]}
+
+
+def get_stats() -> dict:
+    with _lock:
+        return _read_stats()
+
+
+def reset_total() -> dict:
+    """Zero the lifetime total (and the session counter). Operator-only, via
+    the dashboard's Reset button."""
+    with _lock:
+        data = _read_json(STATE_PATH, _STATE_DEFAULTS)
+        data["session_replies"] = 0
+        data["total_replies"] = 0
+        _atomic_write(STATE_PATH, json.dumps(data, indent=2))
+        return {"session_replies": 0, "total_replies": 0}
 
 
 # ---------------------------------------------------------------------------

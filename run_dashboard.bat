@@ -22,8 +22,19 @@ if not exist "bot.env" (
     pause & exit /b 1
 )
 
-echo.
-echo == VRCDJ_bot starting ==
-echo    (the dashboard will print its LAN URL right below)
-echo.
-venv\Scripts\python.exe dashboard.py
+REM Prefer vrcjd.exe (shows as "vrcjd.exe" in Task Manager, distinct from WyBot's python.exe).
+if exist "venv\Scripts\vrcjd.exe" (
+    echo.
+    echo == VRCDJ_bot dashboard starting ==
+    echo    (process: vrcjd.exe  ·  bot child: vrcjb.exe)
+    echo    (the dashboard will print its LAN URL right below)
+    echo.
+    venv\Scripts\vrcjd.exe dashboard.py
+) else (
+    echo.
+    echo == VRCDJ_bot dashboard starting ==
+    echo    (vrcjd.exe not found — falling back to python.exe)
+    echo    (the dashboard will print its LAN URL right below)
+    echo.
+    venv\Scripts\python.exe dashboard.py
+)
