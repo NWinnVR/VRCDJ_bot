@@ -7,17 +7,18 @@ link versions, and build DJ event time-slots in one message — no LLM, no
 accounts, no cloud, just your own Discord bot. Built to be self-hosted by
 **any community** that wants the same tools the author uses.
 
-> **v1.5** — versioning policy: the *second* number goes up with every add or
+> **v1.6** — versioning policy: the *second* number goes up with every add or
 > fix (`1.0 → 1.1 → 1.2 …`); the *first* number only changes on a major
 > overhaul. See [Releases](#releasing--updating) and [`version.py`](version.py).
 >
-> **What's new in 1.5:** `/adddj` now posts reliably (GitHub **401** auth fix)
-> and self-diagnoses if the token ever goes stale. The dashboard's **Activity
-> Log** is far richer — it shows **who** used each command and **which server**
-> (previously hidden), logs `/status`, `/help` and bot joins/leaves, and gets a
-> one-line toolbar of **filter chips + search**. **Pending DJ Additions** now
-> sits right under the log. The README gained a one-click **Add to Discord**
-> install, and the dashboard is title-cased throughout.
+> **What's new in 1.6:** **Stop / Restart / Update actually work now** — the
+> dashboard kills the bot's *whole* process tree (not just the launcher), so
+> it no longer orphans a "ghost" bot that blocks every respawn with
+> "another bot is already running". A new **Restart All** button flushes
+> everything — bot *and* dashboard — and comes back clean, which is exactly
+> what a **headless server** needs (no manual window-clicking). And the
+> **Updates** card now **checks by itself** on page load and every 10 minutes
+> instead of sitting on "checking…" until you click it.
 
 ---
 
@@ -211,9 +212,9 @@ DASHBOARD_PASSWORD=a-long-random-password
 You'll see:
 
 ```
-[dashboard] VRCDJ_bot v1.5
+[dashboard] VRCDJ_bot v1.6
 [dashboard] Dashboard: http://192.168.x.x:8720
-[bot] ready as YourBot#1234 — 8 commands synced (v1.5)
+[bot] ready as YourBot#1234 — 8 commands synced (v1.6)
 [bot] DJ list: 402 entries — ...
 ```
 
@@ -331,9 +332,11 @@ Dark-themed, mobile-friendly, password-gated. Sections (in this order):
   suggestions are waiting, a **new** badge on fresh ones, each entry with the
   DJ's name + a jump-to-issue link, and a **Check now** button. See
   [Suggesting a new DJ](#suggesting-a-new-dj-community).
-- **Updates & version** — current version, **Check for updates** (queries
-  GitHub Releases), and **Update & restart** (pulls the latest code and
-  restarts the bot — no manual file copying).
+- **Updates & version** — current version, **Check for updates** (auto-runs on
+  load and every 10 min; queries GitHub Releases), **Update & restart** (pulls
+  the latest code and restarts the bot — no manual file copying), and
+  **Restart All** (kills the bot *and* the dashboard, then relaunches a fresh
+  dashboard — one-click headless management).
 
 The dashboard binds to `0.0.0.0` so it's reachable across your local network.
 **Keep it there** — don't expose the dashboard port to the public internet.
@@ -346,7 +349,7 @@ Use the strong password; it's the gate to the controls.
 ### How versioning works
 
 The version lives in exactly one place: [`version.py`](version.py)
-(`VERSION = "1.5"`). It flows to the dashboard, the bot's startup log, and
+(`VERSION = "1.6"`). It flows to the dashboard, the bot's startup log, and
 GitHub Releases.
 
 - **Minor** (default): every add or fix bumps the *second* number:
@@ -374,6 +377,9 @@ Releases section and is downloadable. See
 On the machine where the bot runs, either:
 
 - click **Check for updates → Update & restart** on the dashboard, or
+- **Restart All** (same card) to flush the bot *and* the dashboard in one shot
+  and come back on the latest code — the cleanest path on a **headless server**,
+  or
 - `git pull && restart` (or just re-run the launcher).
 
 Because it's a public repo, the update path is plain `git pull` — no private
@@ -383,6 +389,31 @@ file copying, no zips.
 
 ## Changelog
 
+- **v1.6** — **Reliable control: Stop / Restart / Update that actually work,
+  plus one-click headless management.**
+  - **Fixed the "another bot is already running" loop** — the real bug. The bot
+    is launched through `vrcjb.exe` (a copy of `python.exe` whose Windows
+    launcher re-execs a *child* `python.exe`). The dashboard tracked the
+    launcher PID, so **Stop / Restart / Update killed only the launcher and
+    orphaned the real bot** — which kept beating the heartbeat and refused every
+    respawn. `BotManager.stop()` now kills the **whole process tree**
+    (`taskkill /F /T`, with a targeted fallback) and **waits for the heartbeat
+    to go stale** before spawning a replacement, so a respawn can't collide with
+    a ghost.
+  - **New "Restart All" button** (Updates & Version card) — one click **kills
+    the bot and the dashboard**, spawns a fresh detached dashboard, and exits.
+    Built for a **headless server**: no window to click, no manual relaunch.
+    CSRF-protected like every other state change.
+  - **Self-restart is port-safe** — the relaunched dashboard waits for the port
+    to free before binding, so it can't crash on a "port already in use" race.
+  - **Updates card checks by itself** — the check now runs **on page load and
+    every 10 minutes** (shared `checkUpdates()`), instead of sitting on
+    "checking…" until you clicked **Check For Updates**. **Update & Restart**
+    is disabled while you're already up to date.
+  - **How to kill a stuck bot from the dashboard (headless):** Stop/Restart now
+    works (they use the tree-kill), or press **Restart All** for a full flush.
+    Both are safe to run unattended — the new process is fully detached from
+    the old one.
 - **v1.5** — **Reliability + a much richer dashboard.**
   - **`/adddj` GitHub 401 fixed** — the bot now authenticates to GitHub with a
     proper token, and the error message **self-diagnoses** (tells you exactly
