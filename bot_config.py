@@ -38,6 +38,9 @@ DEFAULTS: dict = {
     # Master kill-switch. True = bot answers; False = bot says "switched off".
     # (Also mirrored in bot_state.json so the dashboard and bot stay in sync.)
     "enabled": True,
+    # Discord presence — show a live "up: H:MM:SS" custom status on the bot in
+    # the member list. True (default) = on; False = clear the status.
+    "presence": True,
 }
 
 _lock = threading.RLock()
@@ -91,4 +94,15 @@ def is_enabled() -> bool:
 def set_enabled(value: bool) -> None:
     cfg = load_config()
     cfg["enabled"] = bool(value)
+    save_config(cfg)
+
+
+def is_presence_enabled() -> bool:
+    """True (default) = show the live-uptime custom status in the member list."""
+    return bool(load_config().get("presence", True))
+
+
+def set_presence_enabled(value: bool) -> None:
+    cfg = load_config()
+    cfg["presence"] = bool(value)
     save_config(cfg)

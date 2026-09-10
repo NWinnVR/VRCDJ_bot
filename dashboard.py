@@ -445,6 +445,7 @@ def api_status():
         "version": version.VERSION,
         "bot": bot_manager.status(),
         "enabled": bot_state.is_enabled(),
+        "presence": bot_config.is_presence_enabled(),
         "dj_count": _safe_count_djs(),
         "dj_freshness": _safe_freshness(),
         "stats": _safe_stats(),
@@ -473,6 +474,18 @@ def api_toggle():
     bot_state.set_enabled(new_state, by="dashboard")
     botlog.log("toggle", detail=f"dashboard → {'ON' if new_state else 'OFF'}")
     return jsonify({"enabled": new_state})
+
+
+@app.route("/api/presence-toggle", methods=["POST"])
+def api_presence_toggle():
+    """Flip the member-list uptime status on/off. Writes bot_config; the bot's
+    presence loop reads it on its next refresh (≤60s) — no bot restart needed."""
+    if not _check_csrf():
+        return jsonify({"error": "csrf"}), 403
+    new_state = not bot_config.is_presence_enabled()
+    bot_config.set_presence_enabled(new_state)
+    botlog.log("presence_toggle", detail=f"dashboard → {'ON' if new_state else 'OFF'}")
+    return jsonify({"presence": new_state})
 
 
 @app.route("/api/dj-refresh", methods=["POST"])

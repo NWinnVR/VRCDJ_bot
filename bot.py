@@ -149,6 +149,36 @@ def safe_error(exc: Exception) -> str:
     return f"{tname} (details hidden - see the local bot log)"
 
 
+def fmt_uptime(seconds: float) -> str:
+    """Compact uptime for the Discord presence + /status: MM:SS → H:MM:SS → Dd H:MM:SS.
+
+    Matches the dashboard's uptime display in spirit (always readable, no
+    units) but is unit-free so it reads like a live counter in the member list.
+    """
+    try:
+        s = max(0, int(round(seconds)))
+    except (TypeError, ValueError):
+        return "?"
+    p = lambda n: str(n).zfill(2)
+    d, r = divmod(s, 86400)
+    h, r = divmod(r, 3600)
+    m, sec = divmod(r, 60)
+    if d:
+        return f"{d}d {h}:{p(m)}:{p(sec)}"
+    if h:
+        return f"{h}:{p(m)}:{p(sec)}"
+    return f"{p(m)}:{p(sec)}"
+
+
+def _session_uptime() -> float | None:
+    """Seconds the current bot session has been ready (from bot_state), or None
+    if not ready yet. This is the number the Discord presence counts up."""
+    ra = bot_state.ready_at()
+    if ra is None:
+        return None
+    return max(0.0, time.time() - ra)
+
+
 async def _safe_reply(message: discord.Message, content: str) -> discord.Message:
     """Send `content` as a reply, degrading to a plain channel send when
     Discord refuses the reply reference (error 160002 — the bot has Send
@@ -343,6 +373,8 @@ class Bot(discord.Client):
         # members must not be able to switch it off.
         self.add_public(self.cmd_dj_refresh, name="dj-refresh",
                         description="Re-pull the DJ list from the Google Sheet now.")
+        self.add_public(self.cmd_presence, name="presence",
+                        description="Show or hide my live session-uptime status in the member list — /presence on or off.")
 
         synced = await self.tree.sync()
         print(f"[bot] ready as {self.user} — {len(synced)} commands synced "
@@ -363,6 +395,14 @@ class Bot(discord.Client):
                 f"{count_djs()} DJs"))
         except Exception:
             pass
+
+        # Start the Discord presence loop (live session uptime in the member
+        # list). ready_at is set above, so the very first push is accurate.
+        try:
+            if getattr(self, "_presence_task", None) is None:
+                self._presence_task = asyncio.create_task(self._presence_loop())
+        except Exception as exc:
+            print(f"[bot] presence loop start failed (non-fatal): {safe_error(exc)}")
 
     # ---- background: DJ auto-refresh ---------------------------------------
     async def _dj_auto_refresh_loop(self):
@@ -667,6 +707,61 @@ class Bot(discord.Client):
             await ctx.edit_original_response(
                 content=f"⚠️ Refresh failed: {safe_error(exc)}")
 
+    # ---- Discord presence (live session uptime in the member list) --------
+    # A "custom status" activity that ticks every 60s so anyone looking at the
+    # bot in the server member list sees how long this session has been up —
+    # no command needed. Off → clears the status entirely.
+    def _presence_name(self) -> str | None:
+        """The current presence text, or None if the session isn't up yet."""
+        up = _session_uptime()
+        if up is None:
+            return None
+        return f"up: {fmt_uptime(up)} · v{version.VERSION}"
+
+    async def _push_presence(self):
+        """Push the current custom-status activity (or clear it if disabled)."""
+        try:
+            if bot_config.is_presence_enabled():
+                name = self._presence_name()
+                if name:
+                    await self.change_presence(
+                        activity=discord.Activity(
+                            type=discord.ActivityType.custom, name=name))
+            else:
+                await self.change_presence(activity=None)
+        except Exception as exc:
+            # Presence is cosmetic — never let it crash the bot.
+            print(f"[bot] presence update failed (non-fatal): {safe_error(exc)}")
+
+    async def _presence_loop(self):
+        """Refresh the presence every 60s. Swallows every error."""
+        # First update right after ready (gives an immediate, correct value).
+        while True:
+            await self._push_presence()
+            await asyncio.sleep(60)
+
+    async def cmd_presence(self, ctx: discord.Interaction, state: str):
+        """Toggle the member-list uptime status on or off (staff-only via
+        Discord's per-command permissions, like /dj-refresh)."""
+        state = state.strip().lower()
+        if state not in ("on", "off"):
+            await ctx.response.send_message(
+                "Please say `/presence on` or `/presence off`.")
+            return
+        new = state == "on"
+        try:
+            await asyncio.to_thread(bot_config.set_presence_enabled, new)
+            await self._push_presence()
+            botlog.log("presence_toggle", who=ctx.user.name, detail=state)
+            msg = ("👀 Presence uptime **on** — I'll show my session time in the "
+                   "member list.") if new else \
+                  "👀 Presence uptime **off** — status cleared."
+            await ctx.response.send_message(msg)
+        except Exception as exc:
+            botlog.log("presence_error", who=ctx.user.name,
+                       detail=str(exc)[:200], level="error")
+            await ctx.response.send_message(f"⚠️ {safe_error(exc)}")
+
 
 def _strip_mention(text: str, bot_user: discord.User) -> str:
     """Remove a single @bot mention from the front of the message."""
@@ -799,6 +894,11 @@ async def main():
         pass
     try:
         dj_task.cancel()
+    except Exception:
+        pass
+    try:
+        if getattr(bot, "_presence_task", None) is not None:
+            bot._presence_task.cancel()
     except Exception:
         pass
     with contextlib.suppress(Exception):

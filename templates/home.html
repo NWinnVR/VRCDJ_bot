@@ -155,8 +155,8 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
 
 /* footer */
 footer{margin-top:8px;color:var(--faint);font-size:12.5px;text-align:center}
-footer a{color:var(--muted);text-decoration:none}
-footer a:hover{color:var(--accent)}
+footer a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+footer a:hover{color:var(--accent);filter:brightness(1.25)}
 
 @media (max-width:560px){
   .status-row,.toggle-row{flex-direction:column;align-items:flex-start}
@@ -212,6 +212,17 @@ footer a:hover{color:var(--accent)}
     <div class="reset-line">
       <button class="btn" id="b-reset-stats">🗑 Reset “All Time” Counter</button>
       <span class="reset-note">Zeros the lifetime total — this session’s count already resets on every start.</span>
+    </div>
+
+    <!-- presence (member-list uptime) — toggle + live preview, one tight line -->
+    <div class="reset-line presence-row">
+      <label class="switch">
+        <input type="checkbox" id="presence-toggle" data-csrf="{{ csrf }}">
+        <span class="slider"></span>
+      </label>
+      <span class="toggle-state" id="presence-state" style="color:var(--muted)">…</span>
+      <span class="reset-note" id="presence-preview">👀 member-list status: —</span>
+      <div class="grow"></div>
     </div>
   </div>
 
@@ -350,6 +361,17 @@ async function refreshStatus(){
   st.style.color = on ? 'var(--teal)' : 'var(--bad)';
   $('#dj-count').textContent = d.dj_count ?? '—';
   $('#dj-fresh').textContent = d.dj_freshness || '—';
+
+  // presence (member-list uptime) — mirror the setting + show a live preview
+  const pt = $('#presence-toggle');
+  if(pt && pt.checked !== !!d.presence) pt.checked = !!d.presence;
+  const ps = $('#presence-state');
+  if(ps){ ps.textContent = d.presence ? 'ON' : 'OFF';
+          ps.style.color = d.presence ? 'var(--good)' : 'var(--bad)'; }
+  const pp = $('#presence-preview');
+  if(pp){ pp.textContent = d.presence
+        ? '👀 member-list status: up: ' + uptime(b.alive ? (b.ready_at||b.started_at) : null)
+        : '👀 member-list status: hidden'; }
 
   // usage counters
   const stt = d.stats || {};
@@ -513,6 +535,17 @@ $('#dj-toggle').onchange = async(e)=>{
   msg.textContent = (want?'Enabling…':'Disabling…');
   const r = await post('/api/toggle');
   msg.textContent = r.error ? 'error: '+r.error : (r.enabled?'ON':'OFF')+' ✓';
+  refreshStatus();
+};
+
+// presence (member-list uptime) toggle — the bot's loop picks it up within 60s
+$('#presence-toggle').onchange = async(e)=>{
+  const pp = $('#presence-preview');
+  pp.textContent = '👀 updating…';
+  const r = await post('/api/presence-toggle');
+  pp.textContent = r.error ? 'error: '+r.error
+    : (r.presence ? '👀 ON — shows in the member list (bot applies within 60s)'
+                  : '👀 OFF — status cleared (bot applies within 60s)');
   refreshStatus();
 };
 

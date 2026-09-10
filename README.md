@@ -7,18 +7,18 @@ link versions, and build DJ event time-slots in one message — no LLM, no
 accounts, no cloud, just your own Discord bot. Built to be self-hosted by
 **any community** that wants the same tools the author uses.
 
-> **v1.9.1** — versioning is now **3-point** (`MAJOR.MINOR.PATCH`): the
+> **v1.10.0** — versioning is **3-point** (`MAJOR.MINOR.PATCH`): the
 > *third* number goes up with every small fix/tweak (`1.9 → 1.9.1 → 1.9.2 …`),
 > the *second* on a notable add (`1.9.x → 1.10.0`), and the *first* only on a
 > major overhaul. See [Releases](#releasing--updating) and [`version.py`](version.py).
 >
-> **What's new in 1.9.1:** a **ticking dashboard uptime** in the header
-> (between the version and the commit hash), **Bot Process counters** with the
-> label on the left and the number on the right, a little **breathing room
-> between log timestamps and their text**, a **NWinn → Linktree** link in the
-> footer, and **3-point versioning** going forward. (The 1.9 line added the
-> custom icon, dates on logs, the Clear-logs button, the vibrant color scheme,
-> and tighter panels — see the [changelog](#changelog) below.)
+> **What's new in 1.10.0:** **Rich Presence** — the bot now shows a live
+> **session-uptime counter** in the Discord member list (`up: H:MM:SS · v1.10.0`),
+> so anyone can see at a glance how long it's been up; toggle it with
+> `/presence on|off` or the new dashboard switch. Plus the footer **NWinn link**
+> is now **blue + underlined** so it reads as a link without hovering. (The 1.9.x
+> line added the dashboard uptime timer, the counter layout, log spacing, the
+> footer link, and 3-point versioning — see the [changelog](#changelog) below.)
 
 ---
 
@@ -61,6 +61,7 @@ A small set of **slash commands** aimed at running VRChat DJ events:
 | `/status` | Bot availability, DJ-list freshness, and the version. |
 | `/help` | List every command. |
 | `/dj-refresh` | Re-pull the DJ list from the Google Sheet right now. |
+| `/presence on` / `/presence off` | 👀 Show or hide the **live session-uptime** the bot displays in the Discord **member list** (Rich Presence). A cosmetic status — safe for anyone to toggle. |
 
 > **No `/on` / `/off` slash commands.** This bot is designed to run across
 > several servers at once, so the kill-switch is **not** a slash command anyone
@@ -150,7 +151,9 @@ That's the whole setup. Everything after that is optional.
 > [Suggesting a new DJ](#suggesting-a-new-dj-community)). The one *control*
 > command (`/dj-refresh`) should be restricted in the Developer Portal under
 > **Application Commands → Permissions** (set it to your staff role) — or just
-> don't assign it to the server. There is no `/on` / `/off` slash command at
+> don't assign it to the server. `/presence` is cosmetic (it only shows/hides
+> the bot's uptime status) and is safe to leave open. There is no `/on` /
+> `/off` slash command at
 > all; the only kill-switch is the password-protected **dashboard** (Start /
 > Stop). The bot itself has no hard-coded staff list, so Discord is the single
 > place you control access.
@@ -314,6 +317,41 @@ land on **your own** fork instead, set `VRCDJ_REPO` in `bot.env` to
 
 ---
 
+## Rich Presence — live session uptime in Discord
+
+**New in 1.10.0.** The bot now advertises a **Discord Rich Presence** status so
+you can see, right in the **member list**, how long the bot has been up for its
+current session — no channel, no command, just a glance at the bot's name in
+any server it's in.
+
+- **What people see** — a custom status under the bot's name reading
+  `up: H:MM:SS · v1.10.0`, e.g. `up: 3:42:11 · v1.10.0`. It **ticks** — the
+  seconds roll forward every minute (Discord's presence refresh cadence).
+- **What it measures** — the **current session** uptime (since the bot
+  process last started), the same value the dashboard's *Bot process* card
+  shows. A bot that's been restarted resets to `0:00:00`, so the number is a
+  true "how long has it been up this run" read, not a lifetime clock.
+- **Turn it off** — `/presence off` (and `/presence on` to bring it back). It's
+  a cosmetic status only: it never affects commands, and it's safe for any
+  member to toggle.
+- **Dashboard control** — the **👀 Presence** switch on the *Bot process* card
+  does the same thing with a live preview of the status text. The change
+  applies within a minute, **no restart needed**.
+- **Default** — **on**. First-time installs show the counter out of the box.
+  The setting persists in `bot_config.json` (git-ignored) across restarts.
+- **How it works** — a lightweight background task calls
+  `client.change_presence(activity=discord.Activity(type=custom, …))` once a
+  minute and again immediately on a toggle. It reuses the same
+  `ready_at` session timestamp the dashboard uses, and is fully cancelled on
+  clean shutdown.
+
+> **Note:** the member-list status is a *global* bot presence — it's the same
+> text in every server the bot is in (that's how Discord presence works), which
+> is exactly why it doubles as a nice at-a-glance "the bot is alive and has
+> been up a while" signal.
+
+---
+
 ## The dashboard (LAN web portal)
 
 Dark-themed, mobile-friendly, password-gated. Sections (in this order):
@@ -323,7 +361,10 @@ Dark-themed, mobile-friendly, password-gated. Sections (in this order):
   kill-switch**, the only place you can pause or stop the bot; the watchdog
   keeps it alive). Plus **usage counters**: 💬 replies this session, 📈
   replies all-time (persistent, with a Reset button), and 🌐 how many servers
-  the bot is running in.
+  the bot is running in. And a **👀 Presence** switch — toggles the bot's
+  live **session-uptime status in the Discord member list** (Rich Presence) on
+  and off, with a live preview of the status text; the bot applies the change
+  within a minute, no restart needed. See [Rich Presence](#rich-presence-live-session-uptime-in-discord).
 - **Activity log** — recent lookups, DJ suggestions, refreshes, toggles, and
   errors. Every line carries a **`YYYY-MM-DD HH:MM:SS` timestamp** (date + time,
   local) so a bot running for weeks or months stays readable; lines are
@@ -339,7 +380,8 @@ Dark-themed, mobile-friendly, password-gated. Sections (in this order):
   `up: H:MM:SS` uptime** for the dashboard process (ticks every second), and the
   current **commit hash** in that order. The footer reads *"built by
   [NWinn](https://linktr.ee/nwinn) for the community to make managing events
-  easier"* — **NWinn** is a hyperlink to the author's Linktree (new tab).
+  easier"* — **NWinn** is a hyperlink to the author's Linktree (opens in a new
+  tab), styled **blue and underlined** so it reads as a link without hovering.
 - **DJ list & lookups** — DJ count, list freshness, and a one-click
   **Re-pull** button.
 - **Pending DJ additions** — the `/adddj` review queue: how many community
@@ -406,6 +448,29 @@ file copying, no zips.
 
 ## Changelog
 
+- **v1.10.0** — **Rich Presence: the bot shows its live session uptime in the
+  Discord member list, plus a couple of polish fixes.**
+  - **👀 Rich Presence — live session uptime** — the bot now sets a Discord
+    custom status reading `up: H:MM:SS · v1.10.0`, visible under its name in
+    the **member list** of any server it's in. It ticks every minute and
+    measures the **current session** (resets on restart), matching the
+    dashboard's *Bot process* uptime. A background task pushes it via
+    `change_presence()` and reuses the `ready_at` session timestamp; it's
+    cancelled cleanly on shutdown. See [Rich Presence](#rich-presence-live-session-uptime-in-discord).
+  - **New `/presence on|off` command** — toggle the status on and off. Cosmetic
+    only (never touches commands); safe for any member to use. Registered
+    staff-only alongside `/dj-refresh` if you want to restrict it.
+  - **Dashboard: 👀 Presence switch** — a new toggle on the *Bot process* card
+    (with a live preview of the status text) controls the same setting.
+    `/api/status` now reports `presence`, and the new `/api/presence-toggle`
+    endpoint flips it; the bot applies the change within a minute, **no
+    restart needed**.
+  - **Footer NWinn link is blue + underlined** — the *NWinn* link in the
+    "built by NWinn…" footer is now styled **blue and underlined** so it reads
+    as a link without having to hover.
+  - **3-point versioning in action** — this is the first **minor** release
+    (`1.9.x → 1.10.0`): a new feature bumps the second number and resets the
+    patch, exactly per the policy set in 1.9.1.
 - **v1.9.1** — **A little more breathing room + 3-point versioning.**
   - **Ticking dashboard uptime in the header** — the header now shows a live
     `up: H:MM:SS` timer (dashboard-process uptime) between the version and the

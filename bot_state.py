@@ -117,6 +117,18 @@ def is_ready() -> bool:
         return data.get("state") == "ready"
 
 
+def ready_at() -> float | None:
+    """When the current bot session became READY (epoch seconds), or None.
+
+    This is the bot's session start — the reference point for the 'session
+    uptime' shown in the dashboard header and the Discord presence.
+    """
+    with _lock:
+        data = _read_json(LIFECYCLE_PATH, _LIFECYCLE_DEFAULTS)
+        v = data.get("ready_at")
+        return float(v) if isinstance(v, (int, float)) else None
+
+
 def mark_stopped() -> None:
     with _lock:
         data = _read_json(LIFECYCLE_PATH, _LIFECYCLE_DEFAULTS)
