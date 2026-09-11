@@ -43,6 +43,29 @@ from flask import (Flask, Response, jsonify, redirect, render_template,
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
+# --- windowless-launch guard ---------------------------------------------
+# When the dashboard is started under a GUI-subsystem interpreter (pythonw,
+# e.g. `vrcjdw.exe` for a silent double-click / full-flush relaunch),
+# `sys.stdout` and `sys.stderr` are `None`, and any bare `print()` would
+# raise AttributeError and kill the process on the very first line of
+# main(). Redirect them to a log file ONLY in that case — when there is a
+# real console (run_dashboard.bat, my terminal launches) this is a no-op and
+# the user still sees the startup banner in the window as before.
+if sys.stdout is None or sys.stderr is None:
+    try:
+        _wlog = open(BASE / "dashboard_console.log", "a",
+                     encoding="utf-8", buffering=1, errors="replace")
+        if sys.stdout is None:
+            sys.stdout = _wlog
+        if sys.stderr is None:
+            sys.stderr = _wlog
+    except Exception:
+        _wlog = open(os.devnull, "w")
+        if sys.stdout is None:
+            sys.stdout = _wlog
+        if sys.stderr is None:
+            sys.stderr = _wlog
+
 import version          # noqa: E402  (the version number, single source of truth)
 import bot_config       # noqa: E402
 import bot_state        # noqa: E402
@@ -174,15 +197,21 @@ class BotManager:
                 # This also lets us actually SEE what the bot does on startup.
                 logf = open(BOT_CONSOLE_LOG, "a", encoding="utf-8",
                            buffering=1, errors="replace")
+                # On Windows: CREATE_NO_WINDOW → no console window at all (the
+                # bot's stdout/stderr already go to BOT_CONSOLE_LOG, so we lose
+                # nothing by hiding the terminal).  CREATE_BREAKAWAY_FROM_JOB
+                # lets it escape the job object if the launching session dies.
+                # (CREATE_NEW_PROCESS_GROUP is NOT a valid creationflag here —
+                # it's a process-group flag, not a window flag.)
+                NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+                BREAKAWAY = 0x01000000 if os.name == "nt" else 0
                 self._proc = subprocess.Popen(
                     [BotManager._bot_python(), str(BASE / "bot.py")],
                     cwd=str(BASE),
                     stdout=logf,
                     stderr=subprocess.STDOUT,
                     env=env,
-                    # On Windows: CREATE_NEW_PROCESS_GROUP so we can kill
-                    # the whole tree with os.kill(pid, 9) → TerminateProcess.
-                    creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+                    creationflags=NO_WINDOW | BREAKAWAY,
                 )
                 logf.close()  # child holds its own copy of the handle
                 self._log("bot_started", f"pid={self._proc.pid}")
@@ -623,10 +652,12 @@ def api_restart_all():
     Order matters:
       1. Kill the BOT tree (child of the old dashboard) — frees the token
          and stops the heartbeat.
-      2. Spawn the NEW dashboard DETACHED (new window + new session) so the
-         kill in step 3 can't reach it. It auto-starts its own bot.
-      3. Kill the OLD dashboard tree (stub launcher + real python) and
-         exit the current process.
+      2. Spawn the NEW dashboard DETACHED + BREAKAWAY (new session) so it
+         outlives the old one. It auto-starts its own bot.
+      3. Exit the current process via os._exit(0) — the new dashboard is
+         already detached, so it survives the parent's exit. (We do NOT
+         taskkill /F /T ourselves: the new dashboard is our child, and /T
+         would kill it too. os._exit just orphans it, which is what we want.)
     """
     if not _check_csrf():
         return jsonify({"error": "csrf"}), 403
@@ -639,36 +670,37 @@ def api_restart_all():
             log.append("killed bot tree")
         except Exception as exc:
             log.append(f"bot kill err: {str(exc)[:120]}")
-        # 2. Spawn the new dashboard, fully detached, in a fresh console.
-        try:
-            dash_python = str(BASE / "venv" / "Scripts" / "vrcjd.exe")
-            if not (os.name == "nt" and os.path.exists(dash_python)):
-                dash_python = BotManager._python()
-            DETACHED = 0x00000008 if os.name == "nt" else 0     # DETACHED_PROCESS
-            NEW_CONSOLE = 0x00000010 if os.name == "nt" else 0  # CREATE_NEW_CONSOLE
-            spawn_flags = DETACHED | NEW_CONSOLE
-            new = subprocess.Popen(
-                [dash_python, str(BASE / "dashboard.py")],
-                cwd=str(BASE),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=spawn_flags,
-            )
-            log.append(f"spawned new dashboard pid={new.pid}")
-        except Exception as exc:
-            log.append(f"spawn new dashboard FAILED: {str(exc)[:200]}")
-            with contextlib.suppress(Exception):
-                botlog.log("restart_all_failed", level="error",
-                           detail="; ".join(log)[:400])
-            return  # keep the OLD dashboard alive rather than taking both down
-        # 3. Kill the OLD dashboard's whole process tree (incl. the stub
-        #    launcher) — the new one is already detached, so it survives.
-        me = os.getpid()
+        # 2. Spawn the NEW dashboard, fully detached and WINDOWLESS.
+        #    Prefer `vrcjdw.exe` (a GUI-subsystem copy of pythonw) — it CANNOT
+        #    attach a console window, so no empty terminal appears. Falls back
+        #    to vrcjd.exe (console python) if the windowless copy is missing;
+        #    the print()-guard at the top of dashboard.py keeps either safe.
+        #    DETACHED (0x8) works on this system; CREATE_NEW_CONSOLE (0x10)
+        #    → WinError 87. BREAKAWAY (0x1000000) lets the new dashboard
+        #    survive any job-based tree-kill of the old one.
         if os.name == "nt":
-            for pid in (me,):
-                with contextlib.suppress(Exception):
-                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                                   capture_output=True, text=True)
+            _w = str(BASE / "venv" / "Scripts" / "vrcjdw.exe")
+            _c = str(BASE / "venv" / "Scripts" / "vrcjd.exe")
+            dash_python = _w if os.path.exists(_w) else _c
+        else:
+            dash_python = BotManager._python()
+        if not os.path.exists(dash_python):
+            dash_python = BotManager._python()
+        DETACHED = 0x00000008 if os.name == "nt" else 0
+        BREAKAWAY = 0x01000000 if os.name == "nt" else 0
+        spawn_flags = DETACHED | BREAKAWAY
+        new = subprocess.Popen(
+            [dash_python, str(BASE / "dashboard.py")],
+            cwd=str(BASE),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=spawn_flags,
+        )
+        # 3. Kill the OLD bot tree (already done in step 1, but double-check
+        #    no orphaned bot children of THIS dashboard survive).
+        #    NOTE: do NOT taskkill /F /T this process — the new dashboard is
+        #    a child of it and /T would kill it too. Instead, rely on
+        #    os._exit(0) below: a child orphaned by parent exit keeps running.
         # 4. Exit this (old) dashboard immediately.
         with contextlib.suppress(Exception):
             botlog.log("restart_all", level="info",

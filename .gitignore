@@ -51,3 +51,5 @@ desktop.ini
 
 # dashboard runtime log
 _dash_live.log
+dashboard_console.log
+nul

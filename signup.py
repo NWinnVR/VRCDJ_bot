@@ -35,15 +35,15 @@ Fuzzy, forgiving inputs (reuses the proven /timeslots parsers where it can):
 OUTPUT (the golden template — exactly the format Nadia wants):
 
       # New Event
+      - Doors Open: **__<t:1788669000:F>__** (<t:1788669000:R>)
+      - Each slot is 60 minutes long
+      - Click on the slots you want to sign-up for
+
       > #1, <t:1788670800:t>
       > #2, <t:1788674400:t>
       > #3, <t:1788678000:t>
       ...
       > #6, <t:1788688800:t>
-
-      - Doors Open: **__<t:1788669000:F>__** (<t:1788669000:R>)
-      - Each slot is 60 minutes long
-      - Click on the slots you want to sign-up for
 
   (Doors = slot #1 minus the lead, default 15 min.  "60 minutes long" is
   computed from the slot time and switches to hours past 60.)
@@ -160,17 +160,18 @@ def render_template(title: str,
                     doors_ts: Optional[int]) -> str:
     """The prefill for the "Event Creation" modal (NO names yet).
 
-    Layout = Nadia's golden template: `# title`, the `> #N, <t:…:t>` slot
-    block, then the info bullets (doors / slot length / pick instruction).
+    Layout = Nadia's golden template: `# title`, the info bullets (doors /
+    slot length / pick instruction), a blank line, then the `> #N, <t:…:t>`
+    slot block.
     """
     lines = [f"# {title.strip() or 'New Event'}"]
-    lines.append("\n".join(f"> {slot_label(i)}, <t:{ts}:t>"
-                           for i, ts in enumerate(slot_timestamps)))
-    lines.append("")
     if doors_ts:
         lines.append(_doors_line(doors_ts))
     lines.append(f"- Each slot is {format_duration(slot_seconds)} long")
     lines.append("- Click on the slots you want to sign-up for")
+    lines.append("")
+    lines.append("\n".join(f"> {slot_label(i)}, <t:{ts}:t>"
+                           for i, ts in enumerate(slot_timestamps)))
     return "\n".join(lines)
 
 
@@ -186,20 +187,21 @@ def render_event(title: str,
     Names are "space-space" separated (two spaces -> a hard line break in
     Discord) so multiple people on one slot stack cleanly.  Empty slots keep
     the bare `> #N, <t:…:t>` so everyone can see what's open.
+    Layout matches the modal: `# title`, info bullets, blank line, slots.
     """
     assignments = assignments or {}
     lines = [f"# {title.strip() or 'New Event'}"]
+    if doors_ts:
+        lines.append(_doors_line(doors_ts))
+    lines.append(f"- Each slot is {format_duration(slot_seconds)} long")
+    lines.append("- Click on the slots you want to sign-up for")
+    lines.append("")
     for i, ts in enumerate(slot_timestamps):
         line = f"> {slot_label(i)}, <t:{ts}:t>"
         ids = assignments.get(i) or assignments.get(str(i)) or []
         if ids:
             line += "  " + "  ".join(mention(u) for u in ids)
         lines.append(line)
-    lines.append("")
-    if doors_ts:
-        lines.append(_doors_line(doors_ts))
-    lines.append(f"- Each slot is {format_duration(slot_seconds)} long")
-    lines.append("- Click on the slots you want to sign-up for")
     return "\n".join(lines)
 
 

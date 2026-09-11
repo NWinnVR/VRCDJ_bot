@@ -60,6 +60,18 @@ def _slot_id(msg_id: str, i: int) -> str:
     return f"su:{msg_id}:slot:{i}"
 
 
+def _allbtn_id(msg_id: str) -> str:
+    return f"su:{msg_id}:allbtn"
+
+
+def parse_allbtn(custom_id: str):
+    """`su:{msg_id}:allbtn` -> msg_id, else None."""
+    parts = custom_id.split(":")
+    if len(parts) == 3 and parts[0] == "su" and parts[2] == "allbtn":
+        return parts[1]
+    return None
+
+
 def parse_pickbtn(custom_id: str):
     """`su:{msg_id}:pickbtn` -> msg_id, else None."""
     parts = custom_id.split(":")
@@ -252,11 +264,19 @@ class EventView(discord.ui.View):
 
 
 class SlotPickView(discord.ui.View):
-    """The ephemeral #1..#N grid (one button per slot, in order).
+    """The ephemeral #1..#N grid (one button per slot, in order) + an **All** button.
 
-    Clicking a button toggles the CURRENT USER on that slot — limits enforced
+    Clicking a slot toggles the CURRENT USER on that slot — limits enforced
     by signup_store.toggle_slot — then refreshes the public event post so
-    everyone sees the change, and confirms to the user (ephemeral).
+    everyone sees the change.  NO confirmation message is sent on success
+    (the user can see their own name on the event post; firing a reply per
+    slot would flood the channel and require manual dismissing).  A reply is
+    sent only on failure (slot full / per-person limit / data gone), because
+    there is no other place for the user to learn about it.
+
+    The **All** button signs the user up to EVERY slot in one click,
+    honouring the same per-slot and per-person limits, and replies ONCE with
+    a summary of what was added and what was skipped.
     """
 
     def __init__(self, msg_id: str, slot_count: int):
@@ -270,6 +290,13 @@ class SlotPickView(discord.ui.View):
             )
             btn.callback = self._make_callback(i)
             self.add_item(btn)
+        allbtn = discord.ui.Button(
+            style=discord.ButtonStyle.green,
+            label="All",
+            custom_id=_allbtn_id(msg_id),
+        )
+        allbtn.callback = self._make_all_callback()
+        self.add_item(allbtn)
 
     def _make_callback(self, slot_index: int):
         async def cb(interaction: discord.Interaction):
@@ -284,18 +311,145 @@ class SlotPickView(discord.ui.View):
             result = signup_store.toggle_slot(self.msg_id, slot_index, uid,
                                               is_host=is_host)
             state = result.get("state")
-            await refresh_event_post(interaction, self.msg_id)
-            if state == "added":
-                msg = f"✅ You're signed up for **slot #{slot_index + 1}**."
-            elif state == "removed":
-                msg = (f"✋ Cancelled — you're no longer on "
-                       f"**slot #{slot_index + 1}**.")
-            elif state in ("full_slot", "limit_person"):
+            # Success: no confirmation message — the user sees their name on
+            # the event post.  We only need to refresh the public post.
+            if state in ("added", "removed"):
+                await refresh_event_post(interaction, self.msg_id)
+                return
+            # Failure states: send a single ephemeral reason (no other place
+            # for the user to learn about it).
+            if state in ("full_slot", "limit_person"):
                 msg = f"🚫 {result.get('reason') or 'That slot is unavailable.'}"
             else:
                 msg = f"⚠️ {result.get('reason') or 'Could not update.'}"
             await interaction.response.send_message(msg, ephemeral=True)
         return cb
+
+    def _make_all_callback(self):
+        async def cb(interaction: discord.Interaction):
+            rec = signup_store.get_event(self.msg_id)
+            if rec is None:
+                await interaction.response.send_message(
+                    "⚠️ This event's data is gone.  Ask a host to re-run `/signup`.",
+                    ephemeral=True)
+                return
+            uid = interaction.user.id
+            is_host = (int(interaction.user.id) == int(rec.get("host_id", -1)))
+            slots = [int(s) for s in rec.get("slot_timestamps", [])]
+            # Snapshot current assignments so we can tell "already on this
+            # slot" (leave it alone) from "not yet on it" (add them).
+            asg = {str(k): [int(x) for x in v]
+                   for k, v in (rec.get("assignments") or {}).items()}
+            added, skipped = [], []
+            for i in range(len(slots)):
+                if uid in asg.get(str(i), []):
+                    continue  # already on this slot — "All" never removes
+                r = signup_store.toggle_slot(self.msg_id, i, uid, is_host=is_host)
+                if r.get("state") == "added":
+                    added.append(i + 1)
+                else:
+                    skipped.append((i + 1, r.get("reason") or "unavailable"))
+            await refresh_event_post(interaction, self.msg_id)
+            if not added and not skipped:
+                # user was already on every slot
+                await interaction.response.send_message(
+                    "You're already on every slot.", ephemeral=True)
+                return
+            parts = []
+            if added:
+                parts.append(f"✅ Added to **{len(added)} slot(s)**: "
+                             + ", ".join(f"**#{n}**" for n in added))
+            if skipped:
+                parts.append(f"🚫 Skipped **{len(skipped)}**: "
+                             + ", ".join(f"**#{n}** ({r})" for n, r in skipped))
+            await interaction.response.send_message("\n".join(parts), ephemeral=True)
+        return cb
+
+
+# ---------------------------------------------------------------------------
+# permission helpers
+# ---------------------------------------------------------------------------
+def _bot_channel_missing(channel) -> list:
+    """Return the list of permission names the BOT is missing in `channel`
+    that are needed to post an event message (View Channel + Send Messages).
+    Returns [] when the bot has everything it needs.
+
+    Uses channel.permissions_for(bot) which reflects the EFFECTIVE permissions
+    in that channel, i.e. role perms + any channel-specific @everyone / role /
+    member overrides.  This is what Discord actually enforces, and it is the
+    reason 'I gave it every role perm' can still 403 — a red ✗ override on
+    Send Messages in that channel wins.
+    """
+    try:
+        bot = channel.guild.me
+    except Exception:
+        return []
+    if bot is None:
+        return []
+    perms = channel.permissions_for(bot)
+    missing = []
+    if not perms.view_channel:
+        missing.append("View Channel (read messages)")
+    if not perms.send_messages:
+        missing.append("Send Messages")
+    return missing
+
+
+def _describe_missing(missing: list) -> str:
+    """Human-readable explanation of missing perms, pointing at the fix."""
+    if not missing:
+        return "I'm missing a permission in this channel."
+    names = ", ".join(f"**{m}**" for m in missing)
+    return (
+        f"I can't post in this channel — I'm missing: {names}.\n\n"
+        "You gave the *role* the post permissions, but this channel likely has "
+        "a **channel-specific override** blocking me.  To fix:\n"
+        "1. Right-click the channel → **Edit Channel** → **Permissions**\n"
+        "2. Find `@everyone` and my role → set **Send Messages** (and "
+        "**View Channel**) to **Allow** (green ✓), or remove any red ✗\n"
+        "3. Save → try again.\n\n"
+        "No admin needed — just the two green ✓ on this channel."
+    )
+
+
+def _decode_missing_perm(exc, channel) -> list:
+    """Best-effort name of the missing permission(s) from a 403 Forbidden.
+
+    Two sources, tried in order:
+      1. Discord's 403 body has a `missing_permissions` bitmask field (decimal
+         string, e.g. "2048" == Send Messages).  discord.py 2.7.1 does NOT
+         surface it as an attribute, but it is in the raw parsed body, so we
+         look for it on the exception's response/message.
+      2. Fallback: compute what the bot is missing in THIS channel via
+         permissions_for (reflects role + channel overrides).
+    Returns a list of permission-name strings (possibly empty).
+    """
+    names = []
+    mask = None
+    # (1) try to pull the bitmask out of the exception / its body
+    for src in (getattr(exc, "missing_permissions", None),
+                getattr(exc, "response", None)):
+        if isinstance(src, (int, str)) and str(src).isdigit():
+            mask = int(src); break
+        if isinstance(src, dict) and "missing_permissions" in src:
+            mask = int(src.get("missing_permissions", 0)); break
+    # some discord builds keep the parsed body as exc._body / exc.message
+    for attr in ("_body", "message", "data"):
+        body = getattr(exc, attr, None)
+        if isinstance(body, dict) and "missing_permissions" in body:
+            try: mask = int(body["missing_permissions"])
+            except Exception: pass
+            break
+    if mask:
+        try:
+            p = discord.Permissions(mask)
+            names = [n for n, on in list(p) if on]
+        except Exception:
+            names = []
+    # (2) fallback: compute from the channel
+    if not names and channel is not None:
+        names = _bot_channel_missing(channel)
+    return names
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +545,19 @@ async def handle_submit(interaction: discord.Interaction, name: str,
             ephemeral=True)
         return
 
+    # 1b) Fail fast on a channel where I can't post, with an ACTIONABLE
+    #     message (instead of a cryptic 403 Forbidden later).  This is the
+    #     common gotcha: the bot's ROLE has Send Messages, but this channel
+    #     has a channel-specific override (red ✗) that denies it.
+    missing = _bot_channel_missing(channel)
+    if missing:
+        botlog.log("signup_perm_missing", who=who, level="error",
+                   guild=_guild_name(channel),
+                   detail="missing in channel: " + "; ".join(missing))
+        await interaction.response.send_message(
+            _describe_missing(missing), ephemeral=True)
+        return
+
     host_id = interaction.user.id
 
     # 2) EDIT an existing event (preserve filled slots) or CREATE a new one.
@@ -414,13 +581,13 @@ async def handle_submit(interaction: discord.Interaction, name: str,
                                f"preserved={result.get('preserved')} "
                                f"lost={result.get('lost')}"))
             lost = result.get("lost", 0)
-            kept = result.get("preserved", 0)
-            extra = (f"  **{lost} filled slot(s) were lost** because their "
-                     "time changed." if lost else "")
-            await interaction.followup.send(
-                f"✅ Event updated in place — **{len(slots)} slot(s)** · "
-                f"{kept} filled slot(s) kept.{extra}",
-                ephemeral=True)
+            if lost:
+                # Only notify when something was actually LOST — that's
+                # actionable.  A clean edit is visible on the post itself.
+                await interaction.followup.send(
+                    f"⚠️ Updated, but **{lost} filled slot(s) were lost** "
+                    "because their time changed.",
+                    ephemeral=True)
         else:
             msg_id2 = await post_new_event(
                 channel, host_id, title, slots, slot_seconds, doors_ts,
@@ -429,12 +596,33 @@ async def handle_submit(interaction: discord.Interaction, name: str,
                        guild=_guild_name(channel),
                        detail=f"event msg {msg_id2} · {len(slots)} slot(s) · "
                              f"host {host_id}")
-            await interaction.followup.send(
-                f"✅ Event posted — **{len(slots)} slot(s)**.  Click **Pick "
-                "Slot** to grab one, or **Edit Event** to tweak the times "
-                "(filled slots are preserved).",
-                ephemeral=True)
+            # No confirmation message — the user can see the post exists.
     except discord.HTTPException as exc:
+        # If it's a 403 Forbidden, decode WHICH permission is missing and
+        # tell the user exactly what to do (instead of a bare "Forbidden").
+        is_forbidden = (getattr(exc, "status", 0) == 403
+                        or type(exc).__name__ == "Forbidden")
+        if is_forbidden:
+            missing = _decode_missing_perm(exc, channel)
+            detail = f"{type(exc).__name__}: {exc}"
+            if missing:
+                detail += "  -> missing: " + "; ".join(missing)
+            botlog.log("signup_http_error", who=who, level="error",
+                       detail=detail[:400])
+            try:
+                if missing:
+                    await interaction.followup.send(
+                        _describe_missing(missing), ephemeral=True)
+                else:
+                    await interaction.followup.send(
+                        "⚠️ I can't post in this channel — it looks like I'm "
+                        "missing **Send Messages** (or **View Channel**).  "
+                        "Check this channel's **Permissions** tab and make "
+                        "sure my role (or @everyone) has both set to **Allow** "
+                        "(green ✓).", ephemeral=True)
+            except Exception:
+                pass
+            return
         botlog.log("signup_http_error", who=who, level="error",
                    detail=f"{type(exc).__name__}: {exc}")
         try:
@@ -516,18 +704,22 @@ def _self_test() -> int:
           [c.custom_id for c in v.children])
     check("event view persistent", v.is_persistent())
     spv = SlotPickView("123", 5)
-    check("slot view 5 buttons", len(spv.children) == 5, len(spv.children))
-    check("slot labels",
-          [c.label for c in spv.children] == ["#1", "#2", "#3", "#4", "#5"],
+    check("slot view 6 buttons (5 slots + All)",
+          len(spv.children) == 6, len(spv.children))
+    check("slot labels (incl. All)",
+          [c.label for c in spv.children] == ["#1", "#2", "#3", "#4", "#5", "All"],
           [c.label for c in spv.children])
-    check("slot ids",
+    check("slot ids (incl. allbtn)",
           [c.custom_id for c in spv.children] ==
-          [f"su:123:slot:{i}" for i in range(5)],
+          [f"su:123:slot:{i}" for i in range(5)] + ["su:123:allbtn"],
           [c.custom_id for c in spv.children])
+    check("allbtn decodes", parse_allbtn("su:123:allbtn") == "123",
+          parse_allbtn("su:123:allbtn"))
+    check("allbtn rejects slot", parse_allbtn("su:123:slot:0") is None)
 
     print("=== 4. many-slot grid auto-rows (max 5/row) ===")
     big = SlotPickView("123", 12)
-    check("12 slot buttons", len(big.children) == 12, len(big.children))
+    check("13 buttons (12 slots + All)", len(big.children) == 13, len(big.children))
 
     if failures:
         print(f"\n{failures} CHECK(S) FAILED")

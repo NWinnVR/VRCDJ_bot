@@ -160,11 +160,10 @@ async def run():
         max_per_slot=1, max_per_person=2)
     check("defer called", itx.response.deferred)
     follow = itx.response.sent
-    check("a followup was sent", len(follow) >= 1, f"sent={follow}")
-    if follow:
-        check("followup confirms posted",
-              "Event posted" in (follow[-1]["content"] or ""),
-              follow[-1]["content"])
+    # NEW BEHAVIOUR: a clean post sends NO follow-up confirmation — the host
+    # can see the board exists by virtue of it being there. (We only reply on
+    # failure: a lost slot, a missing perm, an unparseable block, etc.)
+    check("no confirm followup on clean post", len(follow) == 0, f"sent={follow}")
 
     posted_msg = None
     for m in channel.messages.values():
@@ -199,13 +198,17 @@ async def run():
     # ------------------------------------------------------------------
     grid = signup_ui.SlotPickView(msg_id, 8)
     labels = [c.label for c in grid.children]
-    check("slot grid has 8 buttons", len(labels) == 8, str(labels))
-    check("slot grid labels #1..#8",
-          labels == [f"#{i}" for i in range(1, 9)], str(labels))
-    idxs = [signup_ui.parse_slot(c.custom_id) for c in grid.children]
+    check("slot grid has 9 buttons (8 slots + All)", len(labels) == 9, str(labels))
+    check("slot grid labels #1..#8 then All",
+          labels == [f"#{i}" for i in range(1, 9)] + ["All"], str(labels))
+    # 8 slot buttons decode to (msg_id, 0..7); the last is the All button.
+    idxs = [signup_ui.parse_slot(c.custom_id) for c in grid.children[:8]]
     check("slot custom_ids decode to (msg_id, 0..7)",
           all(x is not None and x[0] == msg_id for x in idxs) and
           [x[1] for x in idxs] == list(range(8)), str(idxs))
+    check("last grid button is All",
+          signup_ui.parse_allbtn(grid.children[-1].custom_id) == msg_id,
+          grid.children[-1].custom_id)
 
     # ------------------------------------------------------------------
     # 6) A user claims slot 0 via the button callback (real code path).
@@ -215,12 +218,10 @@ async def run():
     btn = find_button(grid, signup_ui._slot_id(msg_id, 0))
     check("slot 0 button exists in grid", btn is not None)
     await btn.callback(dj_itx)
-    check("dj gets a confirmation", len(dj_itx.response.sent) >= 1,
-          f"sent={dj_itx.response.sent}")
-    if dj_itx.response.sent:
-        check("confirmation says slot #1",
-              "slot #1" in (dj_itx.response.sent[-1]["content"] or ""),
-              dj_itx.response.sent[-1]["content"])
+    # NEW BEHAVIOUR: a successful sign-up is SILENT — no confirmation message.
+    # (We only reply on failure: slot full / per-person limit / data gone.)
+    check("no confirmation on successful sign-up",
+          len(dj_itx.response.sent) == 0, f"sent={dj_itx.response.sent}")
 
     rec = signup_store.get_event(msg_id)
     asg = rec["assignments"]
@@ -256,6 +257,43 @@ async def run():
     rec = signup_store.get_event(msg_id)
     slot0 = [int(x) for x in rec["assignments"].get("0", [])]
     check("toggle removes user 200 from slot 0", 200 not in slot0, str(slot0))
+
+    # ------------------------------------------------------------------
+    # 8b) All button: signs up to EVERY slot in one click, honouring the
+    #     per-person limit (2 here), NEVER removing, and replying exactly
+    #     ONCE with a summary.
+    # ------------------------------------------------------------------
+    all_grid = signup_ui.SlotPickView(msg_id, 8)
+    allbtn = find_button(all_grid, signup_ui._allbtn_id(msg_id))
+    check("All button exists in grid", allbtn is not None)
+    all_itx = FakeInteraction(channel, 600, "Everyhour")
+    await allbtn.callback(all_itx)
+    rec = signup_store.get_event(msg_id)
+    user_slots = {int(i) for i, v in rec["assignments"].items()
+                  if 600 in [int(x) for x in v]}
+    check("All: user 600 added to slots 0 and 1 (limit 2)",
+          user_slots == {0, 1}, str(user_slots))
+    check("All: single summary reply (not 8)",
+          len(all_itx.response.sent) == 1, f"sent={all_itx.response.sent}")
+    check("All: summary names added + skipped",
+          "2 slot(s)" in (all_itx.response.sent[-1]["content"] or "") and
+          "Skipped" in (all_itx.response.sent[-1]["content"] or ""),
+          all_itx.response.sent[-1]["content"] if all_itx.response.sent else "")
+    # Idempotent: a second All click must not remove (no-op), one message.
+    all_itx2 = FakeInteraction(channel, 600, "Everyhour")
+    await allbtn.callback(all_itx2)
+    rec = signup_store.get_event(msg_id)
+    user_slots2 = {int(i) for i, v in rec["assignments"].items()
+                   if 600 in [int(x) for x in v]}
+    check("All twice: still on slots 0 and 1 (not removed)",
+          user_slots2 == {0, 1}, str(user_slots2))
+    check("All twice: single message", len(all_itx2.response.sent) == 1,
+          f"sent={all_itx2.response.sent}")
+    # Clean up: remove user 600 from both slots so later steps (which
+    # assume slot 0 is free under per_slot=1) start from a known state.
+    for _i in (0, 1):
+        _cb = find_button(all_grid, signup_ui._slot_id(msg_id, _i))
+        await _cb.callback(FakeInteraction(channel, 600, "Everyhour"))
 
     # ------------------------------------------------------------------
     # 9) Host edit: shift all slots by +1h — user 200 on old slot 0 should

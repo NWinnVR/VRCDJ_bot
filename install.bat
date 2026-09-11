@@ -54,6 +54,15 @@ if not exist "venv\Scripts\vrcjd.exe" (
     copy /y "venv\Scripts\python.exe" "venv\Scripts\vrcjb.exe" >nul
 )
 
+REM --- silent launcher (vrcjdw.exe = pythonw, GUI subsystem → NO console) --
+REM Used by run_dashboard.bat so a double-click starts the dashboard with
+REM no empty terminal window.  The dashboard guards its print() (see
+REM dashboard.py top) so it runs fine with no console attached.
+if not exist "venv\Scripts\vrcjdw.exe" (
+    echo [i] Creating vrcjdw.exe (silent dashboard launcher)...
+    copy /y "venv\Scripts\pythonw.exe" "venv\Scripts\vrcjdw.exe" >nul
+)
+
 echo.
 echo == install complete ==
 echo Next:  edit bot.env (add your token), then double-click run_dashboard.bat
