@@ -146,8 +146,12 @@ def toggle_slot(msg_id: str, slot_index: int, user_id: int,
     """Toggle `user_id` on slot `slot_index` (0-based) of event `msg_id`.
 
     - If present  -> remove them (cancel).
-    - If absent   -> add them, UNLESS the per-slot or per-person limit is hit.
-      A host (`is_host=True`) is always allowed to place their own name.
+    - If absent   -> add them, subject to the limits below:
+        * per-person  — enforced for EVERYONE, host included (the host may
+          hold at most `max_per_person` slots on this event).
+        * per-slot    — enforced for everyone EXCEPT the host: a host
+          (`is_host=True`) may place their own name on a slot even when it is
+          already full.
 
     Returns a result dict:
       {
@@ -184,16 +188,20 @@ def toggle_slot(msg_id: str, slot_index: int, user_id: int,
                     "reason": None}
 
         # ---- add (sign up) ----
-        if not is_host:
-            if len(ids) >= max_per_slot:
-                return {"ok": False, "state": "full_slot", "assignments": asg,
-                        "reason": f"slot #{slot_index + 1} is full "
-                                  f"({max_per_slot} max)"}
-            mine = sum(1 for v in asg.values() if uid in [int(x) for x in v])
-            if mine >= max_per_person:
-                return {"ok": False, "state": "limit_person", "assignments": asg,
-                        "reason": f"you can hold at most {max_per_person} "
-                                  f"slot(s) here"}
+        # Per-PERSON limit: enforced for EVERYONE, host included. (A host
+        # who set per-person=1 must still be limited to 1 slot — this was
+        # the bug where `is_host` skipped it and let a host stack unlimited.)
+        mine = sum(1 for v in asg.values() if uid in [int(x) for x in v])
+        if mine >= max_per_person:
+            return {"ok": False, "state": "limit_person", "assignments": asg,
+                    "reason": f"you can hold at most {max_per_person} "
+                              f"slot(s) here"}
+        # Per-SLOT limit: enforced for everyone EXCEPT the host (a host may
+        # place their own name on a slot even when it is already full).
+        if not is_host and len(ids) >= max_per_slot:
+            return {"ok": False, "state": "full_slot", "assignments": asg,
+                    "reason": f"slot #{slot_index + 1} is full "
+                              f"({max_per_slot} max)"}
         asg[idx] = ids + [uid]
         rec["updated_at"] = time.time()
         _write(data)
@@ -293,6 +301,14 @@ def _self_test() -> int:
     print("=== 3. host override ===")
     r6 = toggle_slot(M, 0, 300, is_host=True)
     check("host can place on full slot", r6["state"] == "added", r6)
+
+    print("=== 3b. host is STILL capped by per-person (the bug) ===")
+    # host 300 now holds slot#0 (per-person=1). Trying to grab slot#1 must be
+    # blocked by the per-person limit — even though they are the host. This is
+    # the exact regression the is_host guard used to swallow.
+    r6b = toggle_slot(M, 1, 300, is_host=True)
+    check("host blocked on 2nd slot (per-person=1)",
+          r6b["state"] == "limit_person", r6b)
 
     print("=== 4. edit_event preserves by timestamp ===")
     # Current state from sections 1–3: slot#0 (ts 1788670800) = [100, 300],

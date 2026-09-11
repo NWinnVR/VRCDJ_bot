@@ -290,6 +290,7 @@ footer a:hover{color:var(--accent);filter:brightness(1.25)}
     <div class="btns">
       <button class="btn" id="b-check">🔎 Check For Updates</button>
       <button class="btn warn" id="b-update" disabled>⬇ Update &amp; Restart</button>
+      <button class="btn good" id="b-restart-dash" title="Restart just the dashboard (keeps the bot running, then adopts it). Use this after an update if the UI looks stale.">🔄 Restart Dashboard (keep bot)</button>
       <button class="btn bad" id="b-restart-all">💥 Restart All (Full Flush)</button>
     </div>
     <div class="upd-msg" id="upd-msg"></div>
@@ -611,6 +612,20 @@ $('#b-restart-all').onclick = async()=>{
   try { await post('/api/restart-all'); } catch { /* socket dies mid-shutdown */ }
   // the server is shutting down; keep polling so the UI comes back alive.
   b.textContent = '💥 restarting…';
+  setTimeout(()=>{ refreshStatus(); }, 6000);
+};
+
+// ---- 🔄 Restart Dashboard — relaunch ONLY the dashboard, KEEP the bot ----
+// Use after an update if the UI looks stale: the bot never drops, the new
+// dashboard process attaches to the running bot (adoption) and picks it up.
+$('#b-restart-dash').onclick = async()=>{
+  if(!confirm('Restart the dashboard only?\n\nThis relaunches JUST this dashboard\n(the bot keeps running — the new dashboard picks it up).\nGood for picking up a stale UI after an update.\n\nContinue?')) return;
+  const b = $('#b-restart-dash'); b.disabled=true;
+  $('#upd-msg').textContent = '🔄 Restarting dashboard (bot stays up)… (the page will go blank for a moment)';
+  try { await post('/api/restart-dashboard'); } catch { /* socket dies mid-shutdown */ }
+  b.textContent = '🔄 restarting…';
+  // The old dashboard is about to exit and hand the port to the new one;
+  // poll back so the UI comes alive on the fresh process.
   setTimeout(()=>{ refreshStatus(); }, 6000);
 };
 

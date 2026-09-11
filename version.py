@@ -14,9 +14,14 @@ ONE place (here), and it flows to the dashboard and the release tooling.
 """
 
 # ---- the version number (MAJOR.MINOR.PATCH) --------------------------------
-# 1.12.0 — /signup: DJ/dancer slot sign-ups (Pick Slot + Edit Event, live &
-#          persistent).  Minor bump: a new feature (Nadia's policy).
-VERSION = "1.12.1"
+# 1.12.2 — /signup caps fixed (per-person cap now enforced for EVERYONE incl.
+#          the host — the "sign up to every slot" workaround is closed, on both
+#          the single-slot and the "All" paths); per-slot cap verified; the
+#          confusing optional event_name slash option is gone (the name lives in
+#          the modal's text field).  New: a "Restart Dashboard (keep bot)"
+#          button that relaunches only the dashboard and adopts the running
+#          bot, so a stale UI after an update no longer needs a full kill.
+VERSION = "1.12.2"
 
 # ---- repo / release metadata (public, safe to ship) ------------------------
 # Used by the dashboard's "check for updates" and the release script.

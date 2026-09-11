@@ -158,10 +158,70 @@ class BotManager:
 
     def __init__(self):
         self._proc: subprocess.Popen | None = None
+        self._adopted_pid: int | None = None  # set when we adopt an existing bot
         self._lock = threading.Lock()
         self._want_running = True
         self._last_start = 0.0
         self._restart_log: list[tuple[float, str]] = []
+
+    # ---- adopt-an-existing-bot (used by "Restart Dashboard") ---------------
+    def _pid_alive(self, pid: int) -> bool:
+        """Is a Windows/POSIX PID currently running? (best-effort)"""
+        import subprocess as _sp
+        try:
+            if os.name == "nt":
+                r = _sp.run(["tasklist", "/FI", f"PID eq {int(pid)}"],
+                            capture_output=True, text=True, timeout=5)
+                return str(int(pid)) in r.stdout
+            os.kill(int(pid), 0)
+            return True
+        except Exception:
+            return False
+
+    def adopt_running_bot(self) -> dict:
+        """If a VRCDJ_bot is alive right now (fresh heartbeat, different PID),
+        ATTACH to it instead of spawning a second one.
+
+        The new dashboard's BotManager will then manage that same process
+        (Start/Stop/Restart still work), and the watchdog will NOT spawn a
+        duplicate. This is what makes "Restart Dashboard" safe: the bot keeps
+        running across the dashboard relaunch.
+        """
+        try:
+            lc = bot_state._read_json(
+                bot_state.LIFECYCLE_PATH, bot_state._LIFECYCLE_DEFAULTS)
+        except Exception:
+            lc = {}
+        pid = lc.get("pid")
+        beat = lc.get("last_beat")
+        age = (time.time() - beat) if beat else None
+        fresh = bool(beat) and age < bot_state.LIVE_STALE_SECONDS
+        if pid and pid != os.getpid() and fresh and self._pid_alive(int(pid)):
+            self._adopted_pid = int(pid)
+            self._proc = None
+            self._want_running = True
+            self._log("bot_adopted",
+                      f"adopted running bot pid={pid} (heartbeat {round(age,1)}s old)")
+            return {"ok": True, "adopted": True, "pid": int(pid),
+                    "age_s": round(age, 1)}
+        return {"ok": True, "adopted": False, "pid": None}
+
+    def _bot_pid(self) -> int | None:
+        """Return the PID of the live bot, whether we spawned it (tracked
+        child) or ADOPTED it (external process we're now managing).
+
+        Returns None if there is no live bot either way. This is the single
+        source of truth for 'is a bot running' so stop()/status()/watchdog
+        all agree.
+        """
+        with self._lock:
+            proc = self._proc
+            adopted = self._adopted_pid
+        if proc is not None and proc.poll() is None:
+            return proc.pid
+        if adopted is not None and self._pid_alive(adopted):
+            return adopted
+        return None
 
     @staticmethod
     def _python() -> str:
@@ -187,6 +247,9 @@ class BotManager:
         with self._lock:
             if self._proc and self._proc.poll() is None:
                 return  # already running
+            # We are spawning a fresh child — any previously-adopted bot is
+            # now superseded, so drop the adoption flag.
+            self._adopted_pid = None
             self._last_start = time.time()
             env = dict(os.environ)
             # The bot reads DISCORD_BOT_TOKEN from bot.env via dotenv, so we
@@ -227,20 +290,22 @@ class BotManager:
 
     def _watchdog(self) -> None:
         """Loop: keep the bot alive. If it dies and we still want it,
-        restart it (with a 2 s cooldown to avoid a crash-storm)."""
+        restart it (with a 2 s cooldown to avoid a crash-storm).
+
+        Uses _bot_pid() so it also covers an ADOPTED bot (a process this
+        dashboard didn't spawn) — we must not spawn a second one while the
+        adopted bot is still alive."""
         while True:
             time.sleep(3)
             if not self._want_running:
                 continue
-            with self._lock:
-                proc = self._proc
-            if proc is None or proc.poll() is not None:
-                if time.time() - self._last_start < 2:
-                    continue  # cooldown
-                exit_code = proc.returncode if proc else None
-                self._log("bot_restarting",
-                          f"bot process exited (code={exit_code}); restarting")
-                self._spawn()
+            if self._bot_pid() is not None:
+                continue  # a bot is alive (spawned or adopted) — leave it
+            if time.time() - self._last_start < 2:
+                continue  # cooldown
+            self._log("bot_restarting",
+                      "bot process is gone; restarting")
+            self._spawn()
 
     @staticmethod
     def _kill_tree(pid: int) -> bool:
@@ -273,13 +338,22 @@ class BotManager:
         with self._lock:
             proc = self._proc
             self._proc = None
-        if proc and proc.poll() is None:
-            # Kill the WHOLE tree (see _kill_tree), then reap.
-            self._kill_tree(proc.pid)
-            try:
-                proc.wait(timeout=5)
-            except Exception:
-                pass
+            adopted = self._adopted_pid
+            self._adopted_pid = None
+        # Kill whichever bot is live — the child we spawned OR an adopted one.
+        target_pid = None
+        if proc is not None and proc.poll() is None:
+            target_pid = proc.pid
+        elif adopted is not None:
+            target_pid = adopted
+        if target_pid is not None:
+            # Kill the WHOLE tree (see _kill_tree), then wait for our child.
+            self._kill_tree(target_pid)
+            if proc is not None:
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
             # Belt-and-braces: if a heartbeat is still alive (an orphan),
             # flush it so the duplicate-guard doesn't block the next start.
             self.force_reap()
@@ -338,15 +412,17 @@ class BotManager:
     def status(self) -> dict:
         with self._lock:
             proc = self._proc
-        alive = proc is not None and proc.poll() is None
+        live_pid = self._bot_pid()  # spawned OR adopted
+        alive = live_pid is not None
         # Read the bot's own lifecycle file for richer state.
         lc = bot_state._read_json(bot_state.LIFECYCLE_PATH,
                                   bot_state._LIFECYCLE_DEFAULTS)
         return {
             "alive": alive,
             "want_running": self._want_running,
-            "pid": proc.pid if proc else None,
-            "exit_code": proc.returncode if proc else None,
+            "pid": live_pid if live_pid is not None else (proc.pid if proc else None),
+            "exit_code": proc.returncode if proc and proc.poll() is not None else None,
+            "adopted": bool(self._adopted_pid and self._pid_alive(self._adopted_pid)),
             "lifecycle_state": lc.get("state"),
             "ready_at": lc.get("ready_at"),
             "started_at": lc.get("started_at"),
@@ -712,6 +788,84 @@ def api_restart_all():
     return jsonify({"ok": True, "restarting": True})
 
 
+@app.route("/api/restart-dashboard", methods=["POST"])
+def api_restart_dashboard():
+    """Restart ONLY the dashboard — KEEP the bot running, and have the new
+    dashboard adopt it.
+
+    This is the fix for "the dashboard keeps running the old version after
+    /api/update": the updater restarts the BOT but the dashboard process
+    itself stays on stale code. Here we relaunch JUST the dashboard, and the
+    new process attaches to the already-running bot (via its heartbeat PID)
+    instead of killing/spawning one. So:
+
+      1. Do NOT touch the bot — no force_reap, no kill. The heartbeat keeps
+         beating, so the new dashboard sees a live bot and adopts it.
+      2. Spawn the NEW dashboard DETACHED + BREAKAWAY, with DASHBOARD_ADOPT=1
+         so its main() calls adopt_running_bot() instead of start() (which
+         would force_reap() and KILL the running bot).
+      3. Exit the OLD dashboard via os._exit(0). The new one is already
+         detached, so it survives; the port frees up for it to bind.
+
+    Net effect: bot never drops, dashboard is now the fresh version, and the
+    new dashboard's Start/Stop/Restart buttons manage the same bot process.
+    """
+    if not _check_csrf():
+        return jsonify({"error": "csrf"}), 403
+
+    def _do():
+        # Capture which bot we're about to hand off (for the log), without
+        # touching it at all.
+        try:
+            lc = bot_state._read_json(
+                bot_state.LIFECYCLE_PATH, bot_state._LIFECYCLE_DEFAULTS)
+            handoff_pid = lc.get("pid")
+            handoff_beat = lc.get("last_beat")
+            handoff_age = (round(time.time() - handoff_beat, 1)
+                           if handoff_beat else None)
+        except Exception:
+            handoff_pid, handoff_age = None, None
+
+        # Spawn the NEW dashboard, detached + windowless, flagged to adopt.
+        if os.name == "nt":
+            _w = str(BASE / "venv" / "Scripts" / "vrcjdw.exe")
+            _c = str(BASE / "venv" / "Scripts" / "vrcjd.exe")
+            dash_python = _w if os.path.exists(_w) else _c
+        else:
+            dash_python = BotManager._python()
+        if not os.path.exists(dash_python):
+            dash_python = BotManager._python()
+        DETACHED = 0x00000008 if os.name == "nt" else 0
+        BREAKAWAY = 0x01000000 if os.name == "nt" else 0
+        new_env = dict(os.environ)
+        new_env["DASHBOARD_ADOPT"] = "1"   # → main() adopts instead of start()
+        with contextlib.suppress(Exception):
+            subprocess.Popen(
+                [dash_python, str(BASE / "dashboard.py")],
+                cwd=str(BASE),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=new_env,
+                creationflags=DETACHED | BREAKAWAY,
+            )
+        # Give the new process a moment to spawn (so its port-bind attempt
+        # happens after we release ours), then exit the OLD dashboard.
+        # The bot is untouched — it keeps running and the new dashboard
+        # adopts it.
+        with contextlib.suppress(Exception):
+            botlog.log(
+                "restart_dashboard", level="info",
+                detail=("Restart Dashboard: bot kept alive "
+                        f"(pid={handoff_pid}, heartbeat {handoff_age}s), "
+                        "old dashboard exiting, new one is up."))
+        time.sleep(0.4)
+        os._exit(0)
+
+    threading.Thread(target=_do, daemon=True).start()
+    return jsonify({"ok": True, "restarting": True,
+                    "kept_bot": True})
+
+
 @app.route("/api/bot-restart", methods=["POST"])
 def api_bot_restart():
     if not _check_csrf():
@@ -979,6 +1133,23 @@ def main():
     if no_autostart:
         print("[dashboard] VRCDJ_NO_AUTOSTART set — NOT auto-starting the bot.")
         print("[dashboard] Use the ▶ Start button (or run_bot.bat) to start it.")
+    elif os.environ.get("DASHBOARD_ADOPT", "").strip() in ("1", "true", "yes"):
+        # "Restart Dashboard" path: a bot is (or isn't) already running from
+        # the OLD dashboard. Attach to it instead of killing + respawning —
+        # that's the whole point of this button (bot never drops).
+        res = bot_manager.adopt_running_bot()
+        if res.get("adopted"):
+            print(f"[dashboard] ADOPTED the running bot (pid={res['pid']}, "
+                  f"heartbeat {res.get('age_s')}s old). Start/Stop/Restart "
+                  f"buttons now manage that same process.")
+        else:
+            # No live bot to adopt. Leave it stopped — do NOT silently start
+            # one the user didn't ask for. Tell the watchdog to back off so it
+            # doesn't spawn a bot in 3s; the ▶ Start button still works.
+            bot_manager._want_running = False
+            print("[dashboard] No running bot to adopt — leaving it stopped.")
+            print("[dashboard] (If you expected one, the bot may have already "
+                  "exited. Use ▶ Start to launch a fresh one.)")
     else:
         # Start the bot now.
         bot_manager.start()

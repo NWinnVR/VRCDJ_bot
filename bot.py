@@ -676,14 +676,14 @@ class Bot(discord.Client):
                          day: Optional[str] = None,
                          doors_lead: Optional[str] = "15",
                          limit_per_slot: Optional[str] = "1",
-                         limit_per_person: Optional[str] = "1",
-                         event_name: Optional[str] = None):
+                         limit_per_person: Optional[str] = "1"):
         """`/signup` — host builds a live slot-signup board.
 
         1. Compute the slot list from start / count / slot_time (+ day for a
            time-of-day start).
-        2. Open the "Event Creation" modal prefilled with the exact template —
-           the host reviews / edits it, then submits.
+        2. Open the "Event Creation" modal — the host sets the event name in
+           the modal's text field, reviews / edits the slot block, then
+           submits.
         3. On submit (via SignupModal.on_submit → signup_ui.handle_submit) the
            event is posted with a [Pick Slot] + [Edit Event] button row, and
            everyone can sign up live, limits enforced, no host babysitting.
@@ -716,7 +716,9 @@ class Bot(discord.Client):
 
         slot_seconds = (slot_ts[1] - slot_ts[0]) if len(slot_ts) >= 2 else 3600
         doors_ts = (slot_ts[0] - doors * 60) if doors > 0 else None
-        title = (event_name or "").strip() or "New Event"
+        # The event name lives in the modal's text field (su_name) — the host
+        # types it there on submit. This is just a starting placeholder.
+        title = "New Event"
 
         # Prefill the modal with the exact template, then hand it over.
         prefill = signup.render_template(title, slot_ts, slot_seconds, doors_ts)
