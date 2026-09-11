@@ -100,6 +100,31 @@ def set_enabled(value: bool, *, by: str = "") -> None:
         _atomic_write(STATE_PATH, json.dumps(data, indent=2))
 
 
+def mark_started() -> None:
+    """Stamp the start of a NEW bot session. Called at the very beginning of
+    main() (before connect) so 'session'-scoped counters (e.g. 'Errors This
+    Session') have a clean boundary that survives the connect/ready phases."""
+    with _lock:
+        data = _read_json(LIFECYCLE_PATH, _LIFECYCLE_DEFAULTS)
+        now = time.time()
+        data["state"] = "starting"
+        data["started_at"] = now
+        data["ready_at"] = None      # fresh session — not ready yet
+        data["stopped_at"] = None
+        data["pid"] = os.getpid()
+        data["last_beat"] = now
+        _atomic_write(LIFECYCLE_PATH, json.dumps(data, indent=2))
+
+
+def session_start() -> float | None:
+    """When the current bot session began (epoch seconds), or None. This is
+    the boundary the dashboard uses to scope 'Errors This Session'."""
+    with _lock:
+        data = _read_json(LIFECYCLE_PATH, _LIFECYCLE_DEFAULTS)
+        v = data.get("started_at")
+        return float(v) if isinstance(v, (int, float)) else None
+
+
 def mark_ready() -> None:
     """Flip the lifecycle to 'ready'. Called once from on_ready."""
     with _lock:

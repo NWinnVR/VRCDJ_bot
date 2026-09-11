@@ -12,13 +12,16 @@ accounts, no cloud, just your own Discord bot. Built to be self-hosted by
 > the *second* on a notable add (`1.9.x → 1.10.0`), and the *first* only on a
 > major overhaul. See [Releases](#releasing--updating) and [`version.py`](version.py).
 >
-> **What's new in 1.10.0:** **Rich Presence** — the bot now shows a live
-> **session-uptime counter** in the Discord member list (`up: H:MM:SS · v1.10.0`),
-> so anyone can see at a glance how long it's been up; toggle it with
-> `/presence on|off` or the new dashboard switch. Plus the footer **NWinn link**
-> is now **blue + underlined** so it reads as a link without hovering. (The 1.9.x
-> line added the dashboard uptime timer, the counter layout, log spacing, the
-> footer link, and 3-point versioning — see the [changelog](#changelog) below.)
+> **What's new in 1.11.0:** **Rich Presence now reliably shows** (fixed a
+> pipe-buffer stall that was stalling the push), a new **🔴 "Errors This
+> Session" counter** on the *Bot Process* status line, a **readable startup
+> trace** in the Activity Log (boot → config → DJ list → connect), and a
+> tighter *Bot Process* card (the **Rich Presence Toggle** sits on the
+> reset-counter line, right-aligned). 1.10.0 added the Rich Presence
+> session-uptime counter in the member list (`up: H:MM:SS · v1.10.0`), the
+> `/presence on|off` command, the dashboard switch, and the **blue + underlined**
+> footer **NWinn link**. (The 1.9.x line added the dashboard uptime timer, the
+> counter layout, log spacing, the footer link, and 3-point versioning — see the [changelog](#changelog).)
 
 ---
 
@@ -448,6 +451,35 @@ file copying, no zips.
 
 ## Changelog
 
+- **v1.11.0** — **Rich Presence actually ships, a new error counter, and a startup you can read.**
+  - **👀 Rich Presence — fixed so it actually shows.** The bot's stdout was
+    going into a pipe the dashboard never read, and on Windows that ~4KB buffer
+    fills fast — once it did, the bot *blocked on the next `print()`* and its
+    event loop (including the presence push) stalled. The bot's console now
+    writes to `bot_console.log` instead of an undrained pipe, and the first
+    presence push is logged to the Activity Log as `presence_up` (or
+    `presence_error`) so the outcome is visible, not a guess. **The status now
+    reliably appears** under the bot in the member list.
+  - **🔴 "Errors This Session" counter** — a new stat on the *Bot Process*
+    status line (next to **PID / Uptime / State**), in **light red**, counting
+    the `error`-level events since the current bot session started. It resets
+    on every (re)start, so a handful of stale errors from a previous session
+    don't haunt the current one. `/api/status` now reports
+    `errors_this_session`.
+  - **🪵 A startup you can read** — the bot now narrates each boot phase to
+    the Activity Log: `boot` (version · commit · pid · discord.py version),
+    `boot_config` (presence on/off · kill-switch · dj-refresh cadence ·
+    **sheet configured or not**), `boot_djlist` (cached count · freshness ·
+    URL), then `boot_connect`. So "what is the bot doing while it starts?" has
+    an answer right in the log.
+  - **Dashboard: tighter *Bot Process* card** — the **Rich Presence Toggle**
+    (relabeled from "member-list status") now sits **on the same line** as the
+    🗑 Reset "All Time" Counter button, right-aligned; the redundant
+    *"this session's count already resets on every start"* note is gone.
+  - **The `No sheet URL configured` error was stale** — it fired this morning
+    before the sheet URL was in `bot_config.json`; the next refresh (414 DJs)
+    succeeded. The new `boot_config` line now reports the sheet's status at
+    every boot so an empty URL is obvious *before* it ever errors.
 - **v1.10.0** — **Rich Presence: the bot shows its live session uptime in the
   Discord member list, plus a couple of polish fixes.**
   - **👀 Rich Presence — live session uptime** — the bot now sets a Discord

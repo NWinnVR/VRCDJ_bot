@@ -68,6 +68,11 @@ PORT = int(os.environ.get("DASHBOARD_PORT", "8720"))
 HOST = "0.0.0.0"
 PASSWORD_FILE = BASE / "dashboard_password.json"
 BOT_LOG_PATH = BASE / "bot_activity.jsonl"
+# The bot's raw console (stdout+stderr). Previously sent to an undrained
+# subprocess.PIPE, which fills Windows' tiny pipe buffer and can block the
+# child on its next print() — and hid every startup log line from us.
+# Now it goes to a real file we (and the user) can read.
+BOT_CONSOLE_LOG = BASE / "bot_console.log"
 GIT = os.environ.get("GIT", "git")
 
 # ---------------------------------------------------------------------------
@@ -164,16 +169,22 @@ class BotManager:
             # The bot reads DISCORD_BOT_TOKEN from bot.env via dotenv, so we
             # don't need to inject it here.
             try:
+                # stdout+stderr → a log file (NOT an undrained pipe, which fills
+                # Windows' ~4KB pipe buffer and blocks the child on print()).
+                # This also lets us actually SEE what the bot does on startup.
+                logf = open(BOT_CONSOLE_LOG, "a", encoding="utf-8",
+                           buffering=1, errors="replace")
                 self._proc = subprocess.Popen(
                     [BotManager._bot_python(), str(BASE / "bot.py")],
                     cwd=str(BASE),
-                    stdout=subprocess.PIPE,
+                    stdout=logf,
                     stderr=subprocess.STDOUT,
                     env=env,
                     # On Windows: CREATE_NEW_PROCESS_GROUP so we can kill
                     # the whole tree with os.kill(pid, 9) → TerminateProcess.
                     creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
                 )
+                logf.close()  # child holds its own copy of the handle
                 self._log("bot_started", f"pid={self._proc.pid}")
             except Exception as exc:
                 self._log("bot_start_failed", str(exc)[:300])
@@ -292,6 +303,7 @@ class BotManager:
         self._want_running = True
         # Make sure no orphan is holding the token before we spawn a new bot.
         self.force_reap()
+        self._log("bot_start", "dashboard → start requested; spawning bot process")
         self._spawn()
 
     def status(self) -> dict:
@@ -431,6 +443,7 @@ def home():
         "dj_count": _safe_count_djs(),
         "dj_freshness": _safe_freshness(),
         "stats": _safe_stats(),
+        "errors_this_session": _session_errors(),
         "dj_add": _safe_dj_add(),
         "commit": _safe_commit(),
         "lan_url": _lan_url(),
@@ -449,6 +462,7 @@ def api_status():
         "dj_count": _safe_count_djs(),
         "dj_freshness": _safe_freshness(),
         "stats": _safe_stats(),
+        "errors_this_session": _session_errors(),
         "dj_add": _safe_dj_add(),
         "commit": _safe_commit(),
         "dash_started_at": _DASH_STARTED,
@@ -732,6 +746,33 @@ def _safe_freshness() -> str:
         return dj_sheet.get_dj_freshness()
     except Exception:
         return "unknown"
+
+
+def _session_errors() -> int:
+    """Count of ERROR-level events since this bot session started (0-based).
+
+    Scoped to the session start (bot_state.session_start) so a handful of
+    stale errors from an earlier boot don't inflate the live number. If the
+    session-start stamp is missing (bot mid-start / older state file), it falls
+    back to counting ALL errors — still useful, just less precise. Never raises.
+    """
+    from datetime import datetime
+    start_epoch = None
+    with contextlib.suppress(Exception):
+        start_epoch = bot_state.session_start()
+    since_ts = None
+    if start_epoch is not None:
+        # botlog timestamps are UTC (Z-suffixed); _parse_ts compares wall-clock.
+        # Format the session-start as a UTC ISO string so it lines up.
+        from datetime import timezone
+        since_ts = datetime.fromtimestamp(start_epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        return int(botlog.count_errors(since_ts))
+    except Exception:
+        try:
+            return int(botlog.count_errors())
+        except Exception:
+            return 0
 
 
 def _safe_stats() -> dict:

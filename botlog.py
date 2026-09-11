@@ -194,6 +194,41 @@ def count_prompts(since_ts: str | None = None) -> int:
     return n
 
 
+def count_errors(since_ts: str | None = None) -> int:
+    """Count ERROR-level events in the live log.
+
+    ``since_ts`` — optional 'YYYY-MM-DDTHH:MM:SS' timestamp; when given, only
+    events at or after that instant are counted. This powers the dashboard's
+    'Errors This Session' counter (scoped to the current bot session start),
+    so a handful of stale errors from an earlier boot don't rattle the number.
+    Counts level=='error' (and kind=='error') — NOT warnings.
+    Tolerates partial/rotated files — corrupt lines are skipped.
+    """
+    since_dt = _parse_ts(since_ts) if since_ts else None
+    n = 0
+    if not os.path.exists(LOG_PATH):
+        return 0
+    try:
+        with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    continue
+                if not (e.get("level") == "error" or e.get("kind") == "error"):
+                    continue
+                if since_dt is not None:
+                    e_dt = _parse_ts(e.get("ts", ""))
+                    if e_dt is None or e_dt < since_dt:
+                        continue
+                n += 1
+    except Exception:
+        pass
+    return n
+
 # Social-post events — the ones that count as "a social post was MADE". The
 # bot logs exactly ONE entry per command invocation (before it even attempts
 # to build the draft/post), so counting these = counting times the command

@@ -71,6 +71,7 @@ header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
 .stat .accent-blue{color:var(--accent)}
 .stat .accent-teal{color:var(--teal)}
 .stat .accent-violet{color:var(--violet)}
+.accent-red{color:#ff9a9a}   /* light red — 'Errors This Session' counter */
 .reset-line{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
 .reset-note{font-size:12px;color:var(--faint)}
 
@@ -186,6 +187,7 @@ footer a:hover{color:var(--accent);filter:brightness(1.25)}
       <div class="kv"><b>PID</b><span id="bot-pid">—</span></div>
       <div class="kv"><b>Uptime</b><span id="bot-uptime">—</span></div>
       <div class="kv"><b>State</b><span id="bot-state">—</span></div>
+      <div class="kv"><b>Errors This Session</b><span id="bot-errors" style="color:#ff9a9a;font-weight:800">0</span></div>
       <div class="grow"></div>
       <div class="btns btns-inline">
         <button class="btn good"   id="b-start">▶ Start</button>
@@ -211,18 +213,13 @@ footer a:hover{color:var(--accent);filter:brightness(1.25)}
     </div>
     <div class="reset-line">
       <button class="btn" id="b-reset-stats">🗑 Reset “All Time” Counter</button>
-      <span class="reset-note">Zeros the lifetime total — this session’s count already resets on every start.</span>
-    </div>
-
-    <!-- presence (member-list uptime) — toggle + live preview, one tight line -->
-    <div class="reset-line presence-row">
+      <div class="grow"></div>
       <label class="switch">
         <input type="checkbox" id="presence-toggle" data-csrf="{{ csrf }}">
         <span class="slider"></span>
       </label>
+      <span style="font-size:12.5px;color:var(--muted)">Rich Presence Toggle</span>
       <span class="toggle-state" id="presence-state" style="color:var(--muted)">…</span>
-      <span class="reset-note" id="presence-preview">👀 member-list status: —</span>
-      <div class="grow"></div>
     </div>
   </div>
 
@@ -350,6 +347,10 @@ async function refreshStatus(){
   $('#bot-pid').textContent = b.pid ?? '—';
   $('#bot-uptime').textContent = uptime(b.alive ? (b.ready_at||b.started_at) : null);
   $('#bot-state').textContent = b.lifecycle_state || '—';
+  const be = $('#bot-errors');
+  if(be){ const n = d.errors_this_session ?? 0;
+          be.textContent = String(n);
+          be.style.color = n>0 ? '#ff9a9a' : 'var(--faint)'; }
   $('#commit').textContent = 'commit: ' + (d.commit||'—');
   if(!__dashStarted && d.dash_started_at){ __dashStarted = d.dash_started_at; tickDashUp(); }
 
@@ -368,10 +369,6 @@ async function refreshStatus(){
   const ps = $('#presence-state');
   if(ps){ ps.textContent = d.presence ? 'ON' : 'OFF';
           ps.style.color = d.presence ? 'var(--good)' : 'var(--bad)'; }
-  const pp = $('#presence-preview');
-  if(pp){ pp.textContent = d.presence
-        ? '👀 member-list status: up: ' + uptime(b.alive ? (b.ready_at||b.started_at) : null)
-        : '👀 member-list status: hidden'; }
 
   // usage counters
   const stt = d.stats || {};
@@ -540,12 +537,10 @@ $('#dj-toggle').onchange = async(e)=>{
 
 // presence (member-list uptime) toggle — the bot's loop picks it up within 60s
 $('#presence-toggle').onchange = async(e)=>{
-  const pp = $('#presence-preview');
-  pp.textContent = '👀 updating…';
+  const ps = $('#presence-state');
+  if(ps){ ps.textContent = '…'; ps.style.color = 'var(--muted)'; }
   const r = await post('/api/presence-toggle');
-  pp.textContent = r.error ? 'error: '+r.error
-    : (r.presence ? '👀 ON — shows in the member list (bot applies within 60s)'
-                  : '👀 OFF — status cleared (bot applies within 60s)');
+  if(r.error && ps){ ps.textContent = 'ERR'; ps.style.color='var(--bad)'; }
   refreshStatus();
 };
 

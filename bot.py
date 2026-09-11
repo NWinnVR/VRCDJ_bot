@@ -718,8 +718,13 @@ class Bot(discord.Client):
             return None
         return f"up: {fmt_uptime(up)} · v{version.VERSION}"
 
-    async def _push_presence(self):
-        """Push the current custom-status activity (or clear it if disabled)."""
+    async def _push_presence(self, log_result: bool = False):
+        """Push the current custom-status activity (or clear it if disabled).
+
+        ``log_result`` (True on the first push / explicit toggles) writes one
+        line to the dashboard Activity Log so we can see the outcome instead of
+        guessing — 'presence_up' on success, 'presence_error' on failure.
+        """
         try:
             if bot_config.is_presence_enabled():
                 name = self._presence_name()
@@ -727,15 +732,30 @@ class Bot(discord.Client):
                     await self.change_presence(
                         activity=discord.Activity(
                             type=discord.ActivityType.custom, name=name))
+                    if log_result:
+                        with contextlib.suppress(Exception):
+                            botlog.log("presence_up",
+                                       detail=f"custom status set → “{name}”")
             else:
                 await self.change_presence(activity=None)
+                if log_result:
+                    with contextlib.suppress(Exception):
+                        botlog.log("presence_off",
+                                   detail="custom status cleared (presence off)")
         except Exception as exc:
-            # Presence is cosmetic — never let it crash the bot.
             print(f"[bot] presence update failed (non-fatal): {safe_error(exc)}")
+            with contextlib.suppress(Exception):
+                botlog.log("presence_error",
+                           detail=f"change_presence failed: {safe_error(exc)}",
+                           level="error")
 
     async def _presence_loop(self):
-        """Refresh the presence every 60s. Swallows every error."""
-        # First update right after ready (gives an immediate, correct value).
+        """Refresh the presence every 60s. Swallows every error. The FIRST
+        push is logged to the dashboard log so the outcome is visible."""
+        try:
+            await self._push_presence(log_result=True)
+        except Exception:
+            pass  # _push_presence already handles its own errors
         while True:
             await self._push_presence()
             await asyncio.sleep(60)
@@ -841,17 +861,39 @@ async def main():
         print("=" * 62)
         sys.exit(77)  # 77 = 'already running'
 
-    # Stamp which commit THIS running code is on (7-char short id). Best-effort:
-    # no git / not a repo → starts without a commit field.
+    # Stamp a clean SESSION boundary for 'session'-scoped counters (e.g.
+    # 'Errors This Session' in the dashboard). Done AFTER the duplicate-instance
+    # guard above so a refused second instance can't stomp the live bot's stamp.
     try:
-        import repo_version
-        # (record_start is a WyBot state helper; VRCDJ_bot's bot_state uses
-        #  mark_ready/heartbeat, so we just log the commit for the dashboard.)
-        head = repo_version.get_local_head()
-        botlog.log("boot", level="info",
-                   detail=f"v{version.VERSION} · commit={head or 'unknown'}")
+        bot_state.mark_started()
     except Exception:
         pass
+
+    # ---- granular startup trace (visible in the dashboard Activity Log) ----
+    # The bot's console now also goes to bot_console.log, but the structured
+    # botlog entries are what the dashboard surface shows — so narrate each
+    # phase here to answer "what is the bot doing while it starts?"
+    head = "unknown"
+    try:
+        import repo_version
+        head = repo_version.get_local_head() or "unknown"
+    except Exception:
+        pass
+    botlog.log("boot", detail=(
+        f"v{version.VERSION} · commit={head} · pid={os.getpid()} · "
+        f"discord.py {discord.__version__}"))
+    botlog.log("boot_config", detail=(
+        f"presence={'on' if bot_config.is_presence_enabled() else 'off'} · "
+        f"kill-switch={'ON' if bot_state.is_enabled() else 'OFF'} · "
+        f"dj-refresh every {bot_config.get_dj_refresh_days()}d · "
+        f"sheet={'configured' if (bot_config.get_sheet_url() or '').strip() else 'NOT SET — lookups will fail'}"))
+    try:
+        botlog.log("boot_djlist",
+                   detail=f"DJ cache: {count_djs()} entries · {get_dj_freshness()}")
+    except Exception as exc:
+        botlog.log("boot_djlist", level="warn",
+                   detail=f"DJ cache not readable yet: {safe_error(exc)}")
+    botlog.log("boot_connect", detail="connecting to Discord gateway…")
 
     beat_task = asyncio.create_task(_heartbeat_loop())
     dj_task = asyncio.create_task(bot._dj_auto_refresh_loop())
