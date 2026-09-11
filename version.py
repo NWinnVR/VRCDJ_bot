@@ -14,14 +14,17 @@ ONE place (here), and it flows to the dashboard and the release tooling.
 """
 
 # ---- the version number (MAJOR.MINOR.PATCH) --------------------------------
-# 1.12.2 — /signup caps fixed (per-person cap now enforced for EVERYONE incl.
-#          the host — the "sign up to every slot" workaround is closed, on both
-#          the single-slot and the "All" paths); per-slot cap verified; the
-#          confusing optional event_name slash option is gone (the name lives in
-#          the modal's text field).  New: a "Restart Dashboard (keep bot)"
-#          button that relaunches only the dashboard and adopts the running
-#          bot, so a stale UI after an update no longer needs a full kill.
-VERSION = "1.12.2"
+# 1.12.3 — /signup button fix: the slot buttons and the "All" button now ACK
+#          the click immediately (defer + ephemeral "thinking…") instead of
+#          doing their work first — that was the "VRCDJ didn't respond in
+#          time" error (the network round-trips pushed past Discord's 3 s
+#          window before the interaction was ever acknowledged).  Success is
+#          now SILENT (the bubble is cleared, the name on the board IS the
+#          confirmation); you only get a reply on failure or when a limit
+#          blocked part of an "All" action.  New: the "All" button TOGGLES —
+#          click it once to grab every slot, click it again to give them all
+#          back (mirrors the individual slot buttons).
+VERSION = "1.12.3"
 
 # ---- repo / release metadata (public, safe to ship) ------------------------
 # Used by the dashboard's "check for updates" and the release script.

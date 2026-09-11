@@ -268,15 +268,19 @@ class SlotPickView(discord.ui.View):
 
     Clicking a slot toggles the CURRENT USER on that slot — limits enforced
     by signup_store.toggle_slot — then refreshes the public event post so
-    everyone sees the change.  NO confirmation message is sent on success
-    (the user can see their own name on the event post; firing a reply per
-    slot would flood the channel and require manual dismissing).  A reply is
-    sent only on failure (slot full / per-person limit / data gone), because
-    there is no other place for the user to learn about it.
+    everyone sees the change.  The click is ACKed immediately (defer +
+    ephemeral "thinking…") so Discord never hits the 3 s timeout, and success
+    is SILENT — the bubble is cleared and the name appearing on the event post
+    IS the confirmation.  A reply is sent only on failure (slot full / per-
+    person limit / data gone), because there's no other place for the user to
+    learn about it.
 
-    The **All** button signs the user up to EVERY slot in one click,
-    honouring the same per-slot and per-person limits, and replies ONCE with
-    a summary of what was added and what was skipped.
+    The **All** button TOGGLES the whole set: click it once and the user is
+    added to every slot they're not already on (honouring per-slot / per-
+    person limits); click it again and they're removed from every slot they're
+    on.  It's silent on a clean all-add / all-remove, and replies once only
+    when a limit blocked part of the action (so the user knows they didn't get
+    everything they expected).
     """
 
     def __init__(self, msg_id: str, slot_count: int):
@@ -300,9 +304,13 @@ class SlotPickView(discord.ui.View):
 
     def _make_callback(self, slot_index: int):
         async def cb(interaction: discord.Interaction):
+            # ACK the click immediately so Discord doesn't hit the 3 s
+            # "didn't respond in time" timeout.  Ephemeral → only this user
+            # sees the (transient) "thinking…" bubble.
+            await interaction.response.defer(ephemeral=True)
             rec = signup_store.get_event(self.msg_id)
             if rec is None:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "⚠️ This event's data is gone.  Ask a host to re-run `/signup`.",
                     ephemeral=True)
                 return
@@ -311,58 +319,92 @@ class SlotPickView(discord.ui.View):
             result = signup_store.toggle_slot(self.msg_id, slot_index, uid,
                                               is_host=is_host)
             state = result.get("state")
-            # Success: no confirmation message — the user sees their name on
-            # the event post.  We only need to refresh the public post.
             if state in ("added", "removed"):
+                # Success: refresh the public post, then CLEAR the deferred
+                # "thinking…" bubble — no reply (the name appearing on the
+                # board IS the confirmation).
                 await refresh_event_post(interaction, self.msg_id)
+                try:
+                    await interaction.delete_original_response()
+                except discord.HTTPException:
+                    pass  # bubble already gone — nothing to clear
                 return
-            # Failure states: send a single ephemeral reason (no other place
-            # for the user to learn about it).
+            # Failure: tell the user WHY (there's no other channel for it).
             if state in ("full_slot", "limit_person"):
                 msg = f"🚫 {result.get('reason') or 'That slot is unavailable.'}"
             else:
                 msg = f"⚠️ {result.get('reason') or 'Could not update.'}"
-            await interaction.response.send_message(msg, ephemeral=True)
+            await interaction.followup.send(msg, ephemeral=True)
         return cb
 
     def _make_all_callback(self):
         async def cb(interaction: discord.Interaction):
+            # ACK the click immediately so Discord doesn't hit the 3 s
+            # "didn't respond in time" timeout (the loop below can take
+            # longer than that when it touches many slots).
+            await interaction.response.defer(ephemeral=True)
             rec = signup_store.get_event(self.msg_id)
             if rec is None:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "⚠️ This event's data is gone.  Ask a host to re-run `/signup`.",
                     ephemeral=True)
                 return
             uid = interaction.user.id
             is_host = (int(interaction.user.id) == int(rec.get("host_id", -1)))
             slots = [int(s) for s in rec.get("slot_timestamps", [])]
-            # Snapshot current assignments so we can tell "already on this
-            # slot" (leave it alone) from "not yet on it" (add them).
             asg = {str(k): [int(x) for x in v]
                    for k, v in (rec.get("assignments") or {}).items()}
-            added, skipped = [], []
-            for i in range(len(slots)):
-                if uid in asg.get(str(i), []):
-                    continue  # already on this slot — "All" never removes
-                r = signup_store.toggle_slot(self.msg_id, i, uid, is_host=is_host)
-                if r.get("state") == "added":
-                    added.append(i + 1)
-                else:
-                    skipped.append((i + 1, r.get("reason") or "unavailable"))
+            # Toggle: if the user is on at least ONE slot, remove them from
+            # ALL; otherwise add them to ALL.  (Mirrors the individual
+            # slot buttons — click All once to grab everything, click it
+            # again to give it all back.)
+            on_any = any(uid in asg.get(str(i), []) for i in range(len(slots)))
+            if on_any:
+                removed, skipped = [], []
+                for i in range(len(slots)):
+                    if uid not in asg.get(str(i), []):
+                        continue
+                    r = signup_store.toggle_slot(self.msg_id, i, uid,
+                                                 is_host=is_host)
+                    if r.get("state") == "removed":
+                        removed.append(i + 1)
+                    else:
+                        skipped.append((i + 1, r.get("reason") or "unavailable"))
+            else:
+                added, skipped = [], []
+                for i in range(len(slots)):
+                    if uid in asg.get(str(i), []):
+                        continue
+                    r = signup_store.toggle_slot(self.msg_id, i, uid,
+                                                 is_host=is_host)
+                    if r.get("state") == "added":
+                        added.append(i + 1)
+                    else:
+                        skipped.append((i + 1, r.get("reason") or "unavailable"))
+            # Refresh the public post either way so the board reflects the
+            # change (or the partial change).
             await refresh_event_post(interaction, self.msg_id)
-            if not added and not skipped:
-                # user was already on every slot
-                await interaction.response.send_message(
-                    "You're already on every slot.", ephemeral=True)
+            # Silent on success — the board already shows the result.
+            # Reply ONLY when a limit blocked part of it, so the user knows
+            # they didn't get everything they expected.
+            if not skipped:
+                try:
+                    await interaction.delete_original_response()
+                except discord.HTTPException:
+                    pass  # bubble already gone — nothing to clear
                 return
-            parts = []
-            if added:
-                parts.append(f"✅ Added to **{len(added)} slot(s)**: "
-                             + ", ".join(f"**#{n}**" for n in added))
-            if skipped:
+            if on_any:
+                parts = [f"🚫 Couldn't remove **{len(skipped)}**: "
+                         + ", ".join(f"**#{n}** ({r})" for n, r in skipped)]
+            else:
+                parts = []
+                if added:
+                    parts.append(f"✅ Added to **{len(added)} slot(s)**: "
+                                 + ", ".join(f"**#{n}**" for n in added))
                 parts.append(f"🚫 Skipped **{len(skipped)}**: "
                              + ", ".join(f"**#{n}** ({r})" for n, r in skipped))
-            await interaction.response.send_message("\n".join(parts), ephemeral=True)
+            await interaction.followup.send(
+                "\n".join(parts), ephemeral=True)
         return cb
 
 

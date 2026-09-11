@@ -113,6 +113,11 @@ class FakeInteraction:
                                    "administrator": False})()})()
         self.response = FakeResponse()
         self.followup = FakeFollowup(self.response.sent)
+        self.original_deleted = 0  # count of delete_original_response() calls
+
+    async def delete_original_response(self, **kw):
+        self.original_deleted += 1
+        return None
 
 
 def find_button(view, custom_id):
@@ -218,10 +223,13 @@ async def run():
     btn = find_button(grid, signup_ui._slot_id(msg_id, 0))
     check("slot 0 button exists in grid", btn is not None)
     await btn.callback(dj_itx)
-    # NEW BEHAVIOUR: a successful sign-up is SILENT — no confirmation message.
-    # (We only reply on failure: slot full / per-person limit / data gone.)
+    # NEW BEHAVIOUR: a successful sign-up is SILENT — no confirmation message,
+    # and the transient "thinking…" bubble is cleared (delete_message).
     check("no confirmation on successful sign-up",
           len(dj_itx.response.sent) == 0, f"sent={dj_itx.response.sent}")
+    check("sign-up cleared the thinking bubble (defer + delete)",
+          dj_itx.response.deferred and dj_itx.original_deleted >= 1,
+          f"deferred={dj_itx.response.deferred} del={dj_itx.original_deleted}")
 
     rec = signup_store.get_event(msg_id)
     asg = rec["assignments"]
@@ -257,43 +265,47 @@ async def run():
     rec = signup_store.get_event(msg_id)
     slot0 = [int(x) for x in rec["assignments"].get("0", [])]
     check("toggle removes user 200 from slot 0", 200 not in slot0, str(slot0))
+    check("toggle-remove is silent (no reply, bubble cleared)",
+          len(dj_itx2.response.sent) == 0 and dj_itx2.original_deleted >= 1,
+          f"sent={dj_itx2.response.sent} del={dj_itx2.original_deleted}")
 
     # ------------------------------------------------------------------
-    # 8b) All button: signs up to EVERY slot in one click, honouring the
-    #     per-person limit (2 here), NEVER removing, and replying exactly
-    #     ONCE with a summary.
+    # 8b) All button: TOGGLE.  First click adds to every slot (honouring the
+    #     per-person limit of 2 here), replying ONCE with added + skipped.
+    #     Second click removes them from ALL (silent — board shows it).
     # ------------------------------------------------------------------
     all_grid = signup_ui.SlotPickView(msg_id, 8)
     allbtn = find_button(all_grid, signup_ui._allbtn_id(msg_id))
     check("All button exists in grid", allbtn is not None)
+
+    # Click 1: user 600 starts on nothing -> ADD path.
     all_itx = FakeInteraction(channel, 600, "Everyhour")
     await allbtn.callback(all_itx)
     rec = signup_store.get_event(msg_id)
     user_slots = {int(i) for i, v in rec["assignments"].items()
                   if 600 in [int(x) for x in v]}
-    check("All: user 600 added to slots 0 and 1 (limit 2)",
+    check("All (add): user 600 on slots 0 and 1 (limit 2)",
           user_slots == {0, 1}, str(user_slots))
-    check("All: single summary reply (not 8)",
+    check("All (add): replied exactly once (has skipped)",
           len(all_itx.response.sent) == 1, f"sent={all_itx.response.sent}")
-    check("All: summary names added + skipped",
+    check("All (add): summary names added + skipped",
           "2 slot(s)" in (all_itx.response.sent[-1]["content"] or "") and
           "Skipped" in (all_itx.response.sent[-1]["content"] or ""),
           all_itx.response.sent[-1]["content"] if all_itx.response.sent else "")
-    # Idempotent: a second All click must not remove (no-op), one message.
+
+    # Click 2: user 600 is on slots 0 and 1 -> REMOVE path.  No skips, so it
+    # must be SILENT (no reply, "thinking…" bubble cleared via delete).
     all_itx2 = FakeInteraction(channel, 600, "Everyhour")
     await allbtn.callback(all_itx2)
     rec = signup_store.get_event(msg_id)
     user_slots2 = {int(i) for i, v in rec["assignments"].items()
                    if 600 in [int(x) for x in v]}
-    check("All twice: still on slots 0 and 1 (not removed)",
-          user_slots2 == {0, 1}, str(user_slots2))
-    check("All twice: single message", len(all_itx2.response.sent) == 1,
-          f"sent={all_itx2.response.sent}")
-    # Clean up: remove user 600 from both slots so later steps (which
-    # assume slot 0 is free under per_slot=1) start from a known state.
-    for _i in (0, 1):
-        _cb = find_button(all_grid, signup_ui._slot_id(msg_id, _i))
-        await _cb.callback(FakeInteraction(channel, 600, "Everyhour"))
+    check("All (remove): user 600 off every slot",
+          user_slots2 == set(), str(user_slots2))
+    check("All (remove): silent — no reply sent",
+          len(all_itx2.response.sent) == 0, f"sent={all_itx2.response.sent}")
+    check("All (remove): cleared the thinking bubble (delete_original)",
+          all_itx2.original_deleted >= 1, f"del={all_itx2.original_deleted}")
 
     # ------------------------------------------------------------------
     # 9) Host edit: shift all slots by +1h — user 200 on old slot 0 should
