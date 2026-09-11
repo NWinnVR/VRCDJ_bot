@@ -467,7 +467,7 @@ const logState = { filter:'all', search:'' };
 function renderLog(entries){
   const el = $('#log'), countEl = $('#log-count');
   const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-  const rows = (entries||[]).slice().reverse();                 // newest first
+  const rows = (entries||[]).slice();                               // oldest → newest (newest at bottom)
   const total = rows.length;
   const shown = rows.filter(e => inCategory(e, logState.filter) && matchSearch(e, logState.search));
   el.textContent = '';
@@ -494,7 +494,15 @@ function renderLog(entries){
   if(countEl) countEl.textContent =
     (shown.length === total) ? (total ? total+' events' : '')
                              : 'showing '+shown.length+' of '+total+'';
-  if(atBottom) el.scrollTop = el.scrollHeight;
+  // Newest is at the bottom now. On the FIRST render, land there (a full log
+  // would otherwise sit at the top/oldest). Afterwards, keep pinned to the
+  // bottom only while the user is already near it — so new logs auto-scroll
+  // down, but scrolling up to read history is never interrupted.
+  const firstRender = (el.dataset.__logInit !== '1');
+  if(firstRender || atBottom){
+    el.scrollTop = el.scrollHeight;
+    el.dataset.__logInit = '1';
+  }
 }
 async function refreshLog(){
   let d;

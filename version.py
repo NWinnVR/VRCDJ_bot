@@ -14,7 +14,9 @@ ONE place (here), and it flows to the dashboard and the release tooling.
 """
 
 # ---- the version number (MAJOR.MINOR.PATCH) --------------------------------
-VERSION = "1.11.0"
+# 1.12.0 — /signup: DJ/dancer slot sign-ups (Pick Slot + Edit Event, live &
+#          persistent).  Minor bump: a new feature (Nadia's policy).
+VERSION = "1.12.0"
 
 # ---- repo / release metadata (public, safe to ship) ------------------------
 # Used by the dashboard's "check for updates" and the release script.

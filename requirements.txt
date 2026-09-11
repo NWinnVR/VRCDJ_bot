@@ -12,6 +12,13 @@
 discord.py==2.7.1
 Flask>=3.0,<4.0
 
+# tzdata — required on WINDOWS for `zoneinfo` (the /timeslots and /signup
+# commands parse time-of-day starts like "10pm ET"). Windows ships without an
+# IANA timezone database, so without this package a tz-aware start raises
+# ZoneInfoNotFoundError. Harmless (and a no-op) on Linux/macOS, which already
+# have the system tz database.
+tzdata>=2024.1
+
 # PyNaCl is an optional extra of discord.py (voice support). VRCDJ_bot does
 # not use voice, so it is intentionally NOT pinned — the bot runs fine
 # without it. If you ever see a PyNaCl warning, it is harmless.

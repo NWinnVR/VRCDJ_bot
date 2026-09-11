@@ -103,6 +103,9 @@ import event_post     # noqa: E402  (event-post DJ lineup, no LLM)
 import vrcdn          # noqa: E402  (/vrcdn — expand one VRCDN URL to all three)
 import djlineup       # noqa: E402  (/djlineup — A–Z letters on time-slot lines)
 import timeslots      # noqa: E402  (/timeslots — generate the <t:…:t> DJ-slot block)
+import signup         # noqa: E402  (/signup — pure engine: render + parse)
+import signup_store   # noqa: E402  (/signup — persistent slot-assignment state)
+import signup_ui      # noqa: E402  (/signup — modals + button views)
 import discord_send   # noqa: E402  (2000-char-safe sends)
 import dj_add         # noqa: E402  (/adddj — classify + format a DJ suggestion)
 import gh_add         # noqa: E402  (/adddj — the GitHub issue drop-box)
@@ -362,6 +365,8 @@ class Bot(discord.Client):
                         description="Label an event's time-slot lines A–Z so DJs sign up by letter, not time.")
         self.add_public(self.cmd_timeslots, name="timeslots",
                         description="Generate the DJ time-slot block — start time, day, and how many slots; I do the timezone math.")
+        self.add_public(self.cmd_signup, name="signup",
+                        description="Host: post a live slot-signup board — DJs/dancers pick their own slots (real-time).")
         self.add_public(self.cmd_status, name="status",
                         description="Bot availability, DJ list freshness, and version.")
         self.add_public(self.cmd_help, name="help",
@@ -375,6 +380,21 @@ class Bot(discord.Client):
                         description="Re-pull the DJ list from the Google Sheet now.")
         self.add_public(self.cmd_presence, name="presence",
                         description="Show or hide my live session-uptime status in the member list — /presence on or off.")
+
+        # NOTE: the /signup "Event Creation" modal submits through
+        # signup_ui.SignupModal.on_submit (discord.py 2.x modals use an
+        # on_submit hook on the Modal subclass — there is NO tree.on_modal_submit).
+        # It routes to signup_ui.handle_submit, which handles BOTH create and
+        # edit (edit is opened by the event post's [Edit Event] button).
+
+        # Re-register every stored event's persistent button view so the
+        # [Pick Slot] / [Edit Event] buttons keep working across a bot restart.
+        try:
+            for _msg_id, _rec in signup_store.all_events().items():
+                self.add_view(signup_ui.EventView(str(_msg_id)),
+                              message_id=int(_msg_id))
+        except Exception as _ve:
+            print(f"[bot] signup view re-registration: {_ve}")
 
         synced = await self.tree.sync()
         print(f"[bot] ready as {self.user} — {len(synced)} commands synced "
@@ -634,6 +654,81 @@ class Bot(discord.Client):
                            f"slots={n} · letters={bool(timeslots.letter_enabled(add_letters))}"))
         await discord_send.send_long(ctx, out)
 
+    # ---- /signup (DJ / dancer slot auto-signup) ---------------------------
+    @staticmethod
+    def _parse_opt_int(value: Optional[str], default: int, *,
+                       lo: int = 0, hi: int = 100) -> int:
+        """Parse an optional integer field (doors lead, per-slot, per-person).
+        Blank / invalid -> default.  Clamped to [lo, hi]."""
+        raw = (value or "").strip()
+        if not raw:
+            return default
+        try:
+            v = int(re.search(r"\d+", raw).group(0))
+        except (AttributeError, ValueError):
+            return default
+        return max(lo, min(hi, v))
+
+    async def cmd_signup(self, ctx: discord.Interaction,
+                         start_time: str,
+                         slots: str,
+                         slot_time: str,
+                         day: Optional[str] = None,
+                         doors_lead: Optional[str] = "15",
+                         limit_per_slot: Optional[str] = "1",
+                         limit_per_person: Optional[str] = "1",
+                         event_name: Optional[str] = None):
+        """`/signup` — host builds a live slot-signup board.
+
+        1. Compute the slot list from start / count / slot_time (+ day for a
+           time-of-day start).
+        2. Open the "Event Creation" modal prefilled with the exact template —
+           the host reviews / edits it, then submits.
+        3. On submit (via SignupModal.on_submit → signup_ui.handle_submit) the
+           event is posted with a [Pick Slot] + [Edit Event] button row, and
+           everyone can sign up live, limits enforced, no host babysitting.
+        """
+        err = lookup_unavailable_error()
+        if err:
+            await ctx.response.send_message(err)
+            return
+        asker = ctx.user.name
+        guild = ctx.guild.name if ctx.guild else "DM"
+
+        doors = self._parse_opt_int(doors_lead, signup.DEFAULT_DOORS_LEAD, lo=0, hi=600)
+        per_slot = self._parse_opt_int(limit_per_slot, signup.DEFAULT_PER_SLOT, lo=1, hi=100)
+        per_person = self._parse_opt_int(limit_per_person, signup.DEFAULT_PER_PERSON, lo=1, hi=50)
+
+        try:
+            slot_ts = signup.build_slots(start_time, slots, slot_time, day=day)
+        except ValueError as ve:
+            botlog.log("signup", who=asker, guild=guild, level="warn",
+                       detail=f"bad slots: start={start_time!r} n={slots!r} "
+                              f"dur={slot_time!r} day={day!r} → {ve}")
+            await ctx.response.send_message(f"⚠️ {ve}")
+            return
+        if not (1 <= len(slot_ts) <= signup.MAX_SLOTS):
+            await ctx.response.send_message(
+                f"⚠️ I can handle **{signup.MAX_SLOTS} slots** on one board — "
+                "that's a lot for a single event.  Try fewer slots or split "
+                "the event into two `/signup`s.")
+            return
+
+        slot_seconds = (slot_ts[1] - slot_ts[0]) if len(slot_ts) >= 2 else 3600
+        doors_ts = (slot_ts[0] - doors * 60) if doors > 0 else None
+        title = (event_name or "").strip() or "New Event"
+
+        # Prefill the modal with the exact template, then hand it over.
+        prefill = signup.render_template(title, slot_ts, slot_seconds, doors_ts)
+        # One modal class for both create and edit (msg_id=None here = create).
+        modal = signup_ui.SignupModal(
+            prefill_name=title, prefill_block=prefill,
+            max_per_slot=per_slot, max_per_person=per_person)
+        await ctx.response.send_modal(modal)
+        botlog.log("signup", who=asker, guild=guild,
+                   detail=(f"modal opened: {len(slot_ts)} slot(s) · "
+                           f"doors={doors}m · per_slot={per_slot} · per_person={per_person}"))
+
     # ---- info ---------------------------------------------------------------
     async def cmd_status(self, ctx: discord.Interaction):
         on = bot_state.is_enabled()
@@ -678,6 +773,22 @@ class Bot(discord.Client):
             "Times: ET/CT/MT/PT/UTC/BST/GMT, DST-aware. "
             "Optional: `doors_lead:` (min before slot 1, default 15), "
             "`add_letters:` yes/no, `slot_duration:` (default 1 hour)",
+            "",
+            "📅 **Slot sign-up board** — `/signup` (DJ / dancer auto-signup)",
+            "  • Host sets it up in the DJ/dancer channel — everyone signs up "
+            "for their own slots live, no host babysitting, no double-booking",
+            "  • `/signup <start> <slots> <slot_time> [day] [doors_lead] "
+            "[limit_per_slot] [limit_per_person]`",
+            "  • I open an \"Event Creation\" window prefilled with the exact "
+            "layout — review / tweak it, then submit; I post the board with a "
+            "**Pick Slot** button and an **Edit Event** button",
+            "  • **Pick Slot** → a private prompt (only you see it) with one "
+            "button per slot; click `#1` and your name is placed on slot 1 "
+            "(click again to cancel). Others see it update instantly",
+            "  • **Edit Event** (host) → re-opens the window; save edits the "
+            "same post in place and **keeps everyone who's already signed up**",
+            "  • start time: raw unix (`1788670800`) or a ham-time wrap "
+            "(`10pm ET`); `doors_lead` = minutes before slot 1 (default 15)",
             "",
             "🎵 **Whole event at once** — paste a full event post (3+ time-slot "
             "lines each with a DJ name) and **@mention me** — I'll read it and "

@@ -61,6 +61,7 @@ A small set of **slash commands** aimed at running VRChat DJ events:
 | `/vrcdn <url or name>` | Take one VRCDN URL (RTSP / MPEG-TS) or a streamer name and expand it into **all three** link versions (RTSP, MPEG-TS, preview). |
 | `/djlineup` | Label an event's time-slot lines **A–Z** so DJs sign up by letter, not by time. |
 | `/timeslots` | Generate a full DJ time-slot block from a start time, day, and slot count — the bot does the timezone math (DST-aware). |
+| `/signup` | **Host a live slot sign-up board** — DJs/dancers pick their own slots with one click, real-time and visible to everyone, with per-slot and per-person limits and a host **Edit Event** that keeps already-filled slots. See [Slot sign-up board](#slot-sign-up-board-signup). |
 | `/adddj` | **Suggest a new DJ** for the master list — name + link required, genres / availability optional. A VRCDN link is expanded to all three versions for you. See [Suggesting a new DJ](#suggesting-a-new-dj-community). |
 | `/status` | Bot availability, DJ-list freshness, and the version. |
 | `/help` | List every command. |
@@ -85,8 +86,8 @@ more — which is what makes it safe, portable, and cheap to run.
 
 ## Features
 
-- 🔒 **Portable & self-hosted.** One folder, one `venv`, two dependencies
-  (`discord.py` + `Flask`). Runs on Windows (primary), macOS, or Linux.
+- 🔒 **Portable & self-hosted.** One folder, one `venv`, three dependencies
+  (`discord.py` + `Flask` + `tzdata`). Runs on Windows (primary), macOS, or Linux.
   No cloud, no API keys, no LLM.
 - 🌐 **LAN web dashboard** (dark theme) to watch and control the bot from
   your network: start / stop / restart, toggle the kill-switch, re-pull the
@@ -356,6 +357,63 @@ any server it's in.
 
 ---
 
+## Slot sign-up board (`/signup`)
+
+**New in 1.12.0.** A live slot sign-up board for DJ sets and gogo-stage
+dancers — the host sets it up *once* in the DJ/dancer channel, and everyone
+else signs up for their own slots with a single click. No host babysitting,
+no double-booking, and every change is visible to the whole channel in real
+time.
+
+**How it works:**
+
+1. The host runs
+   `/signup <start> <slots> <slot_time> [day] [doors_lead] [limit_per_slot] [limit_per_person]`.
+   Example: `/signup 10pm ET 8 1h friday 15 1 2`.
+2. The bot opens an **"Event Creation"** window (a modal) **prefilled** with
+   the exact board layout:
+
+   ```
+   # New Event
+   > #1, <t:1788670800:t>
+   > #2, <t:1788674400:t>
+   > …
+   - Doors Open: **__<t:…:F>__** (<t:…:R>)
+   - Each slot is 1 hour long
+   - Click on the slots you want to sign-up for
+   ```
+
+   The host reviews or tweaks anything (title, times, limits) and submits.
+3. The bot posts the board with two buttons underneath:
+   - **Pick Slot** — opens a **private prompt** (only that user sees it) with
+     one button per slot, `#1 … #N`, in order. Click `#1` and the user's name
+     is placed on slot 1; clicking it again cancels. Multiple people on one
+     slot are shown space-separated. Everyone in the channel sees it update
+     the moment it happens.
+   - **Edit Event** (host) — re-opens the Event Creation window. Saving edits
+     the **same post in place** (no duplicate event) and **preserves everyone
+     who has already signed up**, matching by slot timestamp.
+
+**Time input:** the start accepts a raw unix timestamp (`1788670800`) or a
+ham-time wrap (`10pm ET`). The **Doors Open** line is **auto-derived** from the
+first slot's time — `doors_lead` is how many minutes before slot 1 the doors
+open (default 15), so the Doors timestamp = slot 1 − `doors_lead`.
+The slot-length line auto-updates and **switches to hours** past 60 minutes
+("Each slot is 90 minutes long" / "2 hours long").
+
+**Persistence:** assignments live in `signup_events.json` (git-ignored,
+per-machine) and the event's buttons are **re-registered on every bot
+restart**, so a board keeps working across restarts. State is shared across
+all servers the bot is in, keyed by the post's message id.
+
+> **Why buttons and not a form?** The whole point is that a *host* sets it up
+> and *everyone else* self-serves. A button the whole channel can see is the
+> lowest-friction way to let 400 DJs and dancers grab slots without a human
+> watching the channel, and it makes the current state of every slot
+> impossible to miss.
+
+---
+
 ## The dashboard (LAN web portal)
 
 Dark-themed, mobile-friendly, password-gated. Sections (in this order):
@@ -455,6 +513,34 @@ file copying, no zips.
 
 ## Changelog
 
+- **v1.12.0** — **`/signup`: a live slot sign-up board for DJs & dancers.**
+  - **📅 New `/signup` command** — the host posts a slot-signup board in the
+    DJ/dancer channel; everyone else **self-serves** their own slots with one
+    click. The bot opens an **"Event Creation"** modal **prefilled** with the
+    exact board layout (title, `#1…#N` slot lines, Doors Open line, slot-length
+    line), the host reviews/tweaks/submits, and the bot posts the board with a
+    **Pick Slot** and an **Edit Event** button.
+  - **🖱 Pick Slot** — a **private** prompt (only the clicking user sees it)
+    with one button per slot, in order. Click `#1` to claim slot 1 (click
+    again to cancel). Multiple people on a slot show space-separated; the whole
+    channel sees it update **in real time**. Per-slot and per-person limits are
+    enforced; no double-booking.
+  - **✏️ Edit Event** — re-opens the modal; saving edits the **same post in
+    place** (no duplicate event) and **preserves everyone already signed up**,
+    matched by slot timestamp.
+  - **⏱ Smart time handling** — start accepts raw unix (`1788670800`) or a
+    ham-time wrap (`10pm ET`); the **Doors Open** line is auto-derived from slot
+    1 minus `doors_lead` (default 15 min); the slot-length line **switches to
+    hours** past 60 minutes.
+  - **♻️ Persistent** — assignments live in `signup_events.json` (git-ignored)
+    and each event's buttons are **re-registered on restart**, so a board keeps
+    working across bot restarts. New modules: `signup.py` (pure engine),
+    `signup_store.py` (state), `signup_ui.py` (modals + views).
+  - **🐛 Fixed a Windows-only crash** — `zoneinfo` (used by `/timeslots` and
+    `/signup` for time-of-day starts like "10pm ET") required the `tzdata`
+    package, which wasn't pinned; without it those commands raised
+    `ZoneInfoNotFoundError` on Windows. `tzdata` is now in `requirements.txt`.
+  - **`/help` + README** now document the sign-up board.
 - **v1.11.0** — **Rich Presence actually ships, a new error counter, and a startup you can read.**
   - **👀 Rich Presence — fixed so it actually shows.** The bot's stdout was
     going into a pipe the dashboard never read, and on Windows that ~4KB buffer

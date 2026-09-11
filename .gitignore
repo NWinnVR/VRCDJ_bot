@@ -24,6 +24,7 @@ dj_list_cache*
 DJ_LIST.json
 dj_meta.json
 *.cache
+signup_events.json
 
 # ── Python ──
 __pycache__/
