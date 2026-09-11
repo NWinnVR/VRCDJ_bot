@@ -1,4 +1,5 @@
-# 🎧 VRCDJ_bot
+
+# <img width="32" height="32" alt="VRCDJ_bot thumbnail tiny" src="https://github.com/user-attachments/assets/7f6b48f4-3acb-4835-8ac8-45420f28c92c" /> VRCDJ_bot
 
 **A portable, open-source Discord bot for VRChat DJ communities.**
 
@@ -25,12 +26,12 @@ accounts, no cloud, just your own Discord bot. Built to be self-hosted by
 
 ---
 
-## 🚀 Add it to your Discord (fastest way)
+## Add it to your Discord directly (fastest way)
 
 The quickest path is a **one-click install** — no code, no terminal, no server
 of your own. This adds the author's live bot instance to your server:
 
-**👉 [Add VRCDJ_bot to Discord](https://discord.com/oauth2/authorize?client_id=1547554560049156116)**
+**[Add VRCDJ_bot to Discord](https://discord.com/oauth2/authorize?client_id=1547554560049156116)**
 
 What to do on the Discord page it opens:
 
@@ -400,6 +401,9 @@ Dark-themed, mobile-friendly, password-gated. Sections (in this order):
 The dashboard binds to `0.0.0.0` so it's reachable across your local network.
 **Keep it there** — don't expose the dashboard port to the public internet.
 Use the strong password; it's the gate to the controls.
+<img width="967" height="863" alt="VRCDJ_bot Dashboard screenshot" src="https://github.com/user-attachments/assets/ff46ba52-1999-48c2-bd83-032b94685de1" />
+<img width="948" height="791" alt="image" src="https://github.com/user-attachments/assets/a88ac30c-0943-4cfe-8303-c0fb7ed4fed0" />
+
 
 ---
 
