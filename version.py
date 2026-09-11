@@ -24,7 +24,10 @@ ONE place (here), and it flows to the dashboard and the release tooling.
 #          blocked part of an "All" action.  New: the "All" button TOGGLES —
 #          click it once to grab every slot, click it again to give them all
 #          back (mirrors the individual slot buttons).
-VERSION = "1.12.3"
+# 1.12.4 — every slash command's input fields now carry a short "what goes
+#          here" hint in Discord (was the bare "…" placeholder).  Pure UX:
+#          @app_commands.describe() on each callback, all strings <100 chars.
+VERSION = "1.12.4"
 
 # ---- repo / release metadata (public, safe to ship) ------------------------
 # Used by the dashboard's "check for updates" and the release script.

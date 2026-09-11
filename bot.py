@@ -482,6 +482,9 @@ class Bot(discord.Client):
                        detail=f"left a server ({len(self.guilds)} remaining)")
 
     # ---- DJ commands --------------------------------------------------------
+    @discord.app_commands.describe(
+        name="DJ name(s) to look up — separate several with commas",
+    )
     async def cmd_dj(self, ctx: discord.Interaction, name: str):
         err = lookup_unavailable_error()
         if err:
@@ -502,6 +505,9 @@ class Bot(discord.Client):
         body = "\n\n".join(blocks)
         await discord_send.send_long(ctx, header + body)
 
+    @discord.app_commands.describe(
+        url="One VRCDN URL, or just the streamer name",
+    )
     async def cmd_vrcdn(self, ctx: discord.Interaction, url: str):
         """Expand ONE VRCDN URL (RTSP or MPEG-TS) — or a bare streamer name —
         into all three link versions: RTSP, MPEG-TS, and host preview.
@@ -522,6 +528,12 @@ class Bot(discord.Client):
         botlog.log("vrcdn", who=asker, guild=guild, detail=username)
         await discord_send.send_long(ctx, vrcdn.render(username))
 
+    @discord.app_commands.describe(
+        name="The DJ's name as it should appear on the list",
+        link="Twitch URL, VRCDN link, or just their streamer name",
+        genres="Their genres or vibe (optional)",
+        availability="When they usually play (optional)",
+    )
     async def cmd_adddj(self, ctx: discord.Interaction,
                         name: str, link: str,
                         genres: Optional[str] = None,
@@ -590,6 +602,9 @@ class Bot(discord.Client):
                 "owner manually:\n\n"
                 "```md\n" + text + "\n```")
 
+    @discord.app_commands.describe(
+        times="Paste the event's <t:…:t> time-slot lines here",
+    )
     async def cmd_djlineup(self, ctx: discord.Interaction, times: str):
         """Label a pasted block of time-slot lines with A–Z letter emotes.
         TOKEN-based: finds every <t:…:t> slot in order and gives each its own
@@ -615,6 +630,14 @@ class Bot(discord.Client):
                    detail=f"{n} slot(s) labelled A→{djlineup.slot_code(n - 1)}")
         await discord_send.send_long(ctx, labelled)
 
+    @discord.app_commands.describe(
+        start_time="Time the first slot starts, e.g. 10pm ET or 22:00",
+        slot_count="Total number of slots",
+        day="The day, e.g. friday or June 5th (skip if start is a full timestamp)",
+        doors_lead="Minutes before slot 1 for the doors line (default 15, blank = none)",
+        add_letters="Append letter emotes :regional_indicator_a: to each slot — type yes to enable",
+        slot_duration="How long each slot is, e.g. 1 hour, 90 min, 1.5 hours",
+    )
     async def cmd_timeslots(self, ctx: discord.Interaction,
                             start_time: str,
                             slot_count: str,
@@ -669,6 +692,15 @@ class Bot(discord.Client):
             return default
         return max(lo, min(hi, v))
 
+    @discord.app_commands.describe(
+        start_time="Time the first slot starts, e.g. 10pm ET or 22:00",
+        slots="Total number of slots",
+        slot_time="Length of each slot, e.g. 1 hour or 90 min",
+        day="The day, e.g. friday or June 5th (skip if start is a full timestamp)",
+        doors_lead="Minutes before slot 1 for the doors line (default 15, blank = none)",
+        limit_per_slot="Max people allowed per slot",
+        limit_per_person="Max slots one person can pick",
+    )
     async def cmd_signup(self, ctx: discord.Interaction,
                          start_time: str,
                          slots: str,
@@ -873,6 +905,9 @@ class Bot(discord.Client):
             await self._push_presence()
             await asyncio.sleep(60)
 
+    @discord.app_commands.describe(
+        state="Show my session uptime in the member list: on or off",
+    )
     async def cmd_presence(self, ctx: discord.Interaction, state: str):
         """Toggle the member-list uptime status on or off (staff-only via
         Discord's per-command permissions, like /dj-refresh)."""
