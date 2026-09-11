@@ -750,5 +750,4 @@ community. See [LICENSE](LICENSE).
 
 ## Credits
 
-Built for the VRChat DJ scene. If you run it for your community and it's
-useful, a shout-out is all that's asked. 🎧
+Built for the VRChat DJ scene, by NWinn to make running events easier.
