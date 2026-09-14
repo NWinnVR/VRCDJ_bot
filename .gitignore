@@ -43,6 +43,14 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
+# ── watchdog runtime (per-machine, regenerates) ──
+vrcj_watchdog.log
+vrcj_watchdog.pid
+vrcj_dashboard.pid
+vrcj_dashboard_crash.log
+_dash_stderr.log
+_dash_stdout.log
+
 # ── editor / OS scratch ──
 .idea/
 .vscode/

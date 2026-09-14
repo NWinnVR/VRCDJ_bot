@@ -63,6 +63,14 @@ if not exist "venv\Scripts\vrcjdw.exe" (
     copy /y "venv\Scripts\pythonw.exe" "venv\Scripts\vrcjdw.exe" >nul
 )
 
+REM --- watchdog launcher (vrcjw.exe = pythonw, windowless) ---------------
+REM start_vrcj.bat runs vrcj_watchdog.py under this name so Task Manager
+REM shows a distinct "vrcjw.exe".  Safe to re-run.
+if not exist "venv\Scripts\vrcjw.exe" (
+    echo [i] Creating vrcjw.exe (watchdog launcher)...
+    copy /y "venv\Scripts\pythonw.exe" "venv\Scripts\vrcjw.exe" >nul
+)
+
 echo.
 echo == install complete ==
 echo Next:  edit bot.env (add your token), then double-click run_dashboard.bat
