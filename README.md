@@ -840,4 +840,9 @@ community. See [LICENSE](LICENSE).
 
 ## Credits
 
+<img width="1878" height="1637" alt="26-09-14 3 Years of Wyvern Part 2 Midweek Mania" src="https://github.com/user-attachments/assets/e2d2ffce-7586-4888-8647-870e4c23b320" />
+<img width="2048" height="2048" alt="Wyvern Logo Full" src="https://github.com/user-attachments/assets/0504cac2-468d-4b8a-81d1-41ae94fabfdf" />
+
+
+
 Built for the VRChat DJ scene, by NWinn to make running events easier.
