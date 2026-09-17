@@ -840,8 +840,9 @@ community. See [LICENSE](LICENSE).
 
 ## Credits
 
-<img width="1878" height="1637" alt="26-09-14 3 Years of Wyvern Part 2 Midweek Mania" src="https://github.com/user-attachments/assets/e2d2ffce-7586-4888-8647-870e4c23b320" />
-<img width="2048" height="2048" alt="Wyvern Logo Full" src="https://github.com/user-attachments/assets/0504cac2-468d-4b8a-81d1-41ae94fabfdf" />
+<img width="2048" height="2048" alt="Wyvern Logo Full (BlackBG)" src="https://github.com/user-attachments/assets/1fe58954-32cf-471b-8fc4-898da1f29993" />
+
+<img width="1878" height="1637" alt="26-09-14 3 Years of Wyvern Part 2 Midweek Mania TWITTER" src="https://github.com/user-attachments/assets/50a13dcb-3b09-4522-b8e9-59fdae7829a2" />
 
 
 
