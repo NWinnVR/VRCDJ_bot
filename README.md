@@ -1,4 +1,3 @@
-
 # <img width="32" height="32" alt="VRCDJ_bot thumbnail tiny" src="https://github.com/user-attachments/assets/7f6b48f4-3acb-4835-8ac8-45420f28c92c" /> VRCDJ_bot
 
 **A portable, open-source Discord bot for VRChat DJ communities.**
@@ -11,7 +10,7 @@ accounts, no cloud, just your own Discord bot. Built to be self-hosted by
 > **v1.10.0** — versioning is **3-point** (`MAJOR.MINOR.PATCH`): the
 > *third* number goes up with every small fix/tweak (`1.9 → 1.9.1 → 1.9.2 …`),
 > the *second* on a notable add (`1.9.x → 1.10.0`), and the *first* only on a
-> major overhaul. See [Releases](#releasing--updating) and [`version.py`](version.py).
+> major overhaul. See [the Releasing & updating page in the wiki](docs/setup-and-use.md) and [`version.py`](version.py).
 >
 > **What's new in 1.11.0:** **Rich Presence now reliably shows** (fixed a
 > pipe-buffer stall that was stalling the push), a new **🔴 "Errors This
@@ -22,7 +21,7 @@ accounts, no cloud, just your own Discord bot. Built to be self-hosted by
 > session-uptime counter in the member list (`up: H:MM:SS · v1.10.0`), the
 > `/presence on|off` command, the dashboard switch, and the **blue + underlined**
 > footer **NWinn link**. (The 1.9.x line added the dashboard uptime timer, the
-> counter layout, log spacing, the footer link, and 3-point versioning — see the [changelog](#changelog).)
+> counter layout, log spacing, the footer link, and 3-point versioning — see the [changelog](docs/changelog.md).)
 
 ---
 
@@ -49,40 +48,25 @@ What to do on the Discord page it opens:
 > copy** (own token, own list, own review queue), skip ahead to
 > [Quick start](#quick-start) for a self-hosted install.
 
----
-
 ## What it does
 
 A small set of **slash commands** aimed at running VRChat DJ events:
 
-| Command | What it does |
+| Command | In one line |
 |---|---|
-| `/dj <name>` | Look up one or more DJs (comma-separated) — pulls their Twitch / VRCDN links from the master list. |
-| `/vrcdn <url or name>` | Take one VRCDN URL (RTSP / MPEG-TS) or a streamer name and expand it into **all three** link versions (RTSP, MPEG-TS, preview). |
-| `/djlineup` | Label an event's time-slot lines **A–Z** so DJs sign up by letter, not by time. |
-| `/timeslots` | Generate a full DJ time-slot block from a start time, day, and slot count — the bot does the timezone math (DST-aware). |
-| `/signup` | **Host a live slot sign-up board** — DJs/dancers pick their own slots with one click, real-time and visible to everyone, with per-slot and per-person limits and a host **Edit Event** that keeps already-filled slots. See [Slot sign-up board](#slot-sign-up-board-signup). |
-| `/adddj` | **Suggest a new DJ** for the master list — name + link required, genres / availability optional. A VRCDN link is expanded to all three versions for you. See [Suggesting a new DJ](#suggesting-a-new-dj-community). |
-| `/status` | Bot availability, DJ-list freshness, and the version. |
-| `/help` | List every command. |
-| `/dj-refresh` | Re-pull the DJ list from the Google Sheet right now. |
-| `/presence on` / `/presence off` | 👀 Show or hide the **live session-uptime** the bot displays in the Discord **member list** (Rich Presence). A cosmetic status — safe for anyone to toggle. |
+| `/dj <name>` | Look up DJs — their Twitch / VRCDN links from the master list. |
+| `/vrcdn <url or name>` | Expand any VRCDN URL into all three link versions (RTSP, MPEG-TS, preview). |
+| `/djlineup` | Label a time-slot line **A–Z** so DJs sign up by letter. |
+| `/timeslots` | Generate a full DJ time-slot block — the bot does the DST-aware math. |
+| `/signup` | Host a live slot sign-up board — one-click slots, real-time for everyone. → [full details](docs/commands.md). |
+| `/adddj` | Suggest a new DJ for the master list (reviewed via GitHub issues). → [deep dive](docs/commands.md) |
+| `/status` / `/help` | Bot availability + version / every command listed. |
+| `/dj-refresh` | Re-pull the DJ list from the Google Sheet now (operator-only). |
+| `/presence on/off` | 👀 Show or hide the live session-uptime in the Discord member list. → [deep dive](docs/commands.md) |
 
-> **No `/on` / `/off` slash commands.** This bot is designed to run across
-> several servers at once, so the kill-switch is **not** a slash command anyone
-> can type. Only the operator — through the **password-protected dashboard**
-> (Start / Stop) — can pause or stop the bot. The `/status` command still *reports*
-> ON/OFF state; it just can't change it.
-
-There is also an **event auto-lineup**: post a line of time-slots (with the
-`<t:…:t>` timestamp format) in a bound channel and the bot labels them A–Z
-automatically.
-
-**What it is *not*:** no AI / LLM, no prompt generation, no host-matching, no
-social-post drafting. It does exactly the DJ + time-slot job and nothing
-more — which is what makes it safe, portable, and cheap to run.
-
----
+> **No `/on` / `/off` slash commands** — the kill-switch is only ever the
+> password-protected dashboard (Start / Stop). Every option, edge case and
+> deep dive lives in the [full command reference](docs/commands.md).
 
 ## Features
 
@@ -103,16 +87,40 @@ more — which is what makes it safe, portable, and cheap to run.
 - 📈 **Versioned.** One source of truth for the version, shown in the
   dashboard and used for GitHub Releases.
 
+## The dashboard (LAN web portal)
+
+Dark-themed, mobile-friendly, password-gated: start / stop / restart the bot,
+toggle Rich Presence, re-pull the DJ list, watch the live activity log, and
+**check for & apply updates** — all from a browser on your network. → [full
+details](docs/dashboard.md)
+
+<img width="967" height="863" alt="VRCDJ_bot Dashboard screenshot" src="https://github.com/user-attachments/assets/ff46ba52-1999-48c2-bd83-032b94685de1" />
+<img width="948" height="791" alt="image" src="https://github.com/user-attachments/assets/a88ac30c-0943-4cfe-8303-c0fb7ed4fed0" />
+
+---
+
+## More docs (the wiki)
+
+The full documentation lives in [`docs/`](docs/index.md), split out so this
+README stays a quick guide:
+
+| Page | What's on it |
+|---|---|
+| [Commands — full reference](docs/commands.md) | Every command with all options + edge cases, and the deep dives for `/signup`, `/adddj` and Rich Presence. |
+| [The dashboard — full details](docs/dashboard.md) | Every card, counter, toggle and log line on the web portal. |
+| [First-time setup & everyday use](docs/setup-and-use.md) | Step-by-step bot creation → install → configure → run; the DJ master list; releasing & updating; running in parallel with other bots. |
+| [Troubleshooting](docs/troubleshooting.md) | Every "when X happens → do Y" in one place. |
+| [Files — what's in this repo](docs/files.md) | The file tree + a table of every file and why it exists. |
+| [Changelog](docs/changelog.md) | The complete version history, newest first. |
+
 ---
 
 ## Requirements
 
 - **Python 3.10 or newer** (3.11/3.12/3.13 all fine).
-- A **Discord bot application** (free, see [Setup](#1-create-your-discord-bot)).
+- A **Discord bot application** (free, see [Detailed setup](docs/setup-and-use.md)).
 - Outbound internet access (Discord gateway + the public DJ Google Sheet).
 - That's it. Only `discord.py` and `Flask` are installed.
-
----
 
 ## Quick start
 
@@ -128,602 +136,6 @@ more — which is what makes it safe, portable, and cheap to run.
 ```
 
 That's the whole setup. Everything after that is optional.
-
----
-
-## Detailed setup
-
-### 1. Create your Discord bot
-
-1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
-   → **New Application** → give it any name (e.g. `VRCDJ_bot`).
-2. Open the **Bot** tab → **Reset Token** → copy the token.
-   - This token is **secret**. Anyone with it can control your bot.
-   - You'll paste it into `bot.env` in a moment. It is never uploaded anywhere.
-3. Still on the **Bot** tab, enable the **Message Content Intent**
-   (required for the event auto-lineup). Leave voice intents off.
-4. Open the **OAuth2** tab → **URL Generator**:
-   - Scopes: `bot`
-   - Bot Permissions: `Send Messages`, `Embed Links`,
-     (and `Read Message History` if you want the bot to see the channel it
-     auto-lineups in).
-5. Copy the generated URL, open it in a browser, and **invite the bot** to
-   your server.
-
-> **Who can use the commands?** By default, every member of the server can run
-> the read-only commands (`/dj`, `/vrcdn`, `/djlineup`, `/timeslots`,
-> `/status`, `/help`) — and `/adddj`, if the operator enabled it (see
-> [Suggesting a new DJ](#suggesting-a-new-dj-community)). The one *control*
-> command (`/dj-refresh`) should be restricted in the Developer Portal under
-> **Application Commands → Permissions** (set it to your staff role) — or just
-> don't assign it to the server. `/presence` is cosmetic (it only shows/hides
-> the bot's uptime status) and is safe to leave open. There is no `/on` /
-> `/off` slash command at
-> all; the only kill-switch is the password-protected **dashboard** (Start /
-> Stop). The bot itself has no hard-coded staff list, so Discord is the single
-> place you control access.
-
-### 2. Install
-
-**Windows**
-
-```bat
-install.bat
-```
-
-**macOS / Linux**
-
-```bash
-./run.sh          # first run does the setup for you
-```
-
-Both create a `venv/` and install `discord.py` + `Flask`. If you'd rather do
-it by hand:
-
-```bash
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt    # Windows: venv\Scripts\pip
-```
-
-### 3. Configure
-
-Open `bot.env` (created from `bot.env.example` by the install) and add your
-token:
-
-```env
-DISCORD_BOT_TOKEN=your-token-here
-# optional:
-DASHBOARD_PASSWORD=a-long-random-password
-# DASHBOARD_PORT=8720
-
-# /adddj (optional but recommended) — a GitHub token with `repo` scope on the
-# target repo. Lets the bot post DJ suggestions as issues and lets the
-# dashboard show them. See "Suggesting a new DJ" below.
-#GH_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-- `DISCORD_BOT_TOKEN` — **required**. From step 1.2.
-- `DASHBOARD_PASSWORD` — optional. If blank, the dashboard prints a random
-  one **once** on first start. Set your own for a server.
-- `DASHBOARD_PORT` — optional, default `8720`.
-- `GH_TOKEN` — optional. Needed for `/adddj` (and the dashboard's Pending DJ
-  additions checker). A *classic* GitHub token with `repo` scope on the target
-  repo is the simplest choice; a *fine-grained* token with `Issues: Read &
-  write` also works. Without it, `/adddj` tells the user it can't submit, and
-  the checker shows an error. **Never commit `bot.env`** — it's git-ignored.
-
-### 4. Run
-
-**Windows** → double-click `run_dashboard.bat`.
-**macOS / Linux** → `./run.sh`.
-
-You'll see:
-
-```
-[dashboard] VRCDJ_bot v1.9
-[dashboard] Dashboard: http://192.168.x.x:8720
-[bot] ready as YourBot#1234 — 8 commands synced (v1.9)
-[bot] DJ list: 402 entries — ...
-```
-
-Open `http://192.168.x.x:8720` (your LAN IP) in a browser on any device on the
-network, sign in with the password, and you have the live dashboard.
-
-> **Just the bot, no dashboard?** Use `run_bot.bat` (or
-> `venv/bin/python bot.py`).
-
----
-
-## The DJ master list
-
-The bot reads its DJ list from a **public Google Sheet** ("anyone with the
-link can view") and downloads it as CSV — **no API key needed**.
-
-**By default, every install — including someone who downloads the repo and
-runs their own copy — pulls the *same* community master list that ships in the
-code.** It's the largest public list of its kind, so that's the point: you get
-the full list out of the box, no configuration required.
-
-To point the bot at a **different** sheet (your community's DJs):
-
-1. Make your Google Sheet shareable with "Anyone with the link → Viewer".
-2. Set `DJ_SHEET_URL` in `bot.env` to your sheet's CSV link — the
-   publish-to-web form is the most reliable:
-   `https://docs.google.com/spreadsheets/d/e/<ID>/pub?output=csv`
-   (the `…/export?format=csv` form is also supported).
-3. Restart, or hit **Re-pull the DJ sheet** on the dashboard.
-
-Expected columns (case-insensitive, extra columns ignored): `Name`, plus any
-of `Twitch`, `VRC`, `VRCDN`, `RTSP`, `MPEG`, `Preview`. The bot strips
-labels and normalizes URLs, so a human-friendly sheet is fine.
-
-The list is cached locally and auto-refreshed in the background (it will
-re-pull if it goes stale).
-
----
-
-## Suggesting a new DJ (community)
-
-A lot of communities have DJs that aren't on the master list yet. Rather than
-letting random people edit the shared sheet, `/adddj` lets **any member of any
-server the bot is in** submit a suggestion — the bot formats it in the master
-list's style and drops it somewhere the maintainer can review.
-
-**How it works:**
-
-1. The user runs `/adddj` with a DJ name + one link, plus optional genres and
-   availability.
-2. If the link is a VRCDN URL (RTSP or MPEG-TS), the bot expands it to all
-   three versions using the **exact same logic as `/vrcdn`** — so the
-   suggestion arrives fully formatted, ready to paste into the sheet.
-   (Twitch / other links are kept as-is.)
-3. The bot POSTs the formatted block as a **GitHub issue** on the target repo,
-   labelled `dj-addition`.
-4. The maintainer opens the **Pending DJ additions** card on the dashboard,
-   sees the badge, copies the formatted block into the master list, and closes
-   the issue.
-
-**For the bot operator (you):**
-
-- Set `GH_TOKEN` in `bot.env` (see [Configure](#3-configure)). Without it the
-  command is still visible but tells users it can't submit.
-- The dashboard's **Pending DJ additions** card polls the GitHub Issues API
-  (read-only, no token needed) and shows:
-  - a **new** badge when a suggestion is fresh (less than 7 days old),
-  - the DJ name, how many days it's been pending, and a jump-to-issue link,
-  - a **Check now** button if you want to force a fresh poll.
-- After copying a suggestion into the sheet, **close the issue** from GitHub —
-  the badge disappears on the next poll.
-
-**For the bot user (anyone in a server the bot is in):**
-
-```
-/adddj name: "Aurora"
-     link: rtspt://stream.vrcdn.live/live/aurora
-     genres: "House, Techno"           (optional)
-     availability: "Fri/Sat nights"   (optional)
-```
-
-You'll get a confirmation with the issue number and a link to it. The
-maintainer handles the rest — you don't need a GitHub account or a Google
-Sheet to suggest a DJ. 🎧
-
-**For forkers:** by default `/adddj` targets the *upstream* repo
-(`NWinnVR/VRCDJ_bot`) — the maintainer's drop box. If you want suggestions to
-land on **your own** fork instead, set `VRCDJ_REPO` in `bot.env` to
-`<your-user>/<your-repo>` (or `https://github.com/<user>/<repo>`) and point
-`GH_TOKEN` at a token with issue-write access on that repo.
-
-> **Why GitHub issues and not pastebin / the sheet?** GitHub is free, has no
-> rate limit at this scale, keeps the history in the same repo as the bot, and
-> doesn't require the user to have any account. Issues are the maintainer's
-> inbox, and they're closed once the DJ is added — so the "pending" state
-> never drifts out of sync.
-
----
-
-## Rich Presence — live session uptime in Discord
-
-**New in 1.10.0.** The bot now advertises a **Discord Rich Presence** status so
-you can see, right in the **member list**, how long the bot has been up for its
-current session — no channel, no command, just a glance at the bot's name in
-any server it's in.
-
-- **What people see** — a custom status under the bot's name reading
-  `up: H:MM:SS · v1.10.0`, e.g. `up: 3:42:11 · v1.10.0`. It **ticks** — the
-  seconds roll forward every minute (Discord's presence refresh cadence).
-- **What it measures** — the **current session** uptime (since the bot
-  process last started), the same value the dashboard's *Bot process* card
-  shows. A bot that's been restarted resets to `0:00:00`, so the number is a
-  true "how long has it been up this run" read, not a lifetime clock.
-- **Turn it off** — `/presence off` (and `/presence on` to bring it back). It's
-  a cosmetic status only: it never affects commands, and it's safe for any
-  member to toggle.
-- **Dashboard control** — the **👀 Presence** switch on the *Bot process* card
-  does the same thing with a live preview of the status text. The change
-  applies within a minute, **no restart needed**.
-- **Default** — **on**. First-time installs show the counter out of the box.
-  The setting persists in `bot_config.json` (git-ignored) across restarts.
-- **How it works** — a lightweight background task calls
-  `client.change_presence(activity=discord.Activity(type=custom, …))` once a
-  minute and again immediately on a toggle. It reuses the same
-  `ready_at` session timestamp the dashboard uses, and is fully cancelled on
-  clean shutdown.
-
-> **Note:** the member-list status is a *global* bot presence — it's the same
-> text in every server the bot is in (that's how Discord presence works), which
-> is exactly why it doubles as a nice at-a-glance "the bot is alive and has
-> been up a while" signal.
-
----
-
-## Slot sign-up board (`/signup`)
-
-**New in 1.12.0.** A live slot sign-up board for DJ sets and gogo-stage
-dancers — the host sets it up *once* in the DJ/dancer channel, and everyone
-else signs up for their own slots with a single click. No host babysitting,
-no double-booking, and every change is visible to the whole channel in real
-time.
-
-**How it works:**
-
-1. The host runs
-   `/signup <start> <slots> <slot_time> [day] [doors_lead] [limit_per_slot] [limit_per_person]`.
-   Example: `/signup 10pm ET 8 1h friday 15 1 2`.
-2. The bot opens an **"Event Creation"** window (a modal) **prefilled** with
-   the exact board layout:
-
-   ```
-   # New Event
-   > #1, <t:1788670800:t>
-   > #2, <t:1788674400:t>
-   > …
-   - Doors Open: **__<t:…:F>__** (<t:…:R>)
-   - Each slot is 1 hour long
-   - Click on the slots you want to sign-up for
-   ```
-
-   The host reviews or tweaks anything (title, times, limits) and submits.
-3. The bot posts the board with two buttons underneath:
-   - **Pick Slot** — opens a **private prompt** (only that user sees it) with
-     one button per slot, `#1 … #N`, in order. Click `#1` and the user's name
-     is placed on slot 1; clicking it again cancels. Multiple people on one
-     slot are shown space-separated. Everyone in the channel sees it update
-     the moment it happens.
-   - **Edit Event** (host) — re-opens the Event Creation window. Saving edits
-     the **same post in place** (no duplicate event) and **preserves everyone
-     who has already signed up**, matching by slot timestamp.
-
-**Time input:** the start accepts a raw unix timestamp (`1788670800`) or a
-ham-time wrap (`10pm ET`). The **Doors Open** line is **auto-derived** from the
-first slot's time — `doors_lead` is how many minutes before slot 1 the doors
-open (default 15), so the Doors timestamp = slot 1 − `doors_lead`.
-The slot-length line auto-updates and **switches to hours** past 60 minutes
-("Each slot is 90 minutes long" / "2 hours long").
-
-**Persistence:** assignments live in `signup_events.json` (git-ignored,
-per-machine) and the event's buttons are **re-registered on every bot
-restart**, so a board keeps working across restarts. State is shared across
-all servers the bot is in, keyed by the post's message id.
-
-> **Why buttons and not a form?** The whole point is that a *host* sets it up
-> and *everyone else* self-serves. A button the whole channel can see is the
-> lowest-friction way to let 400 DJs and dancers grab slots without a human
-> watching the channel, and it makes the current state of every slot
-> impossible to miss.
-
----
-
-## The dashboard (LAN web portal)
-
-Dark-themed, mobile-friendly, password-gated. Sections (in this order):
-
-- **Bot process** — running / stopped, PID, uptime, and the **Start / Stop /
-  Restart** buttons (inline on the status row — **Start / Stop is the
-  kill-switch**, the only place you can pause or stop the bot; the watchdog
-  keeps it alive). Plus **usage counters**: 💬 replies this session, 📈
-  replies all-time (persistent, with a Reset button), and 🌐 how many servers
-  the bot is running in. And a **👀 Presence** switch — toggles the bot's
-  live **session-uptime status in the Discord member list** (Rich Presence) on
-  and off, with a live preview of the status text; the bot applies the change
-  within a minute, no restart needed. See [Rich Presence](#rich-presence-live-session-uptime-in-discord).
-- **Activity log** — recent lookups, DJ suggestions, refreshes, toggles, and
-  errors. Every line carries a **`YYYY-MM-DD HH:MM:SS` timestamp** (date + time,
-  local) so a bot running for weeks or months stays readable; lines are
-  **color-coded by category** — **red** = errors, **blue** = commands, **violet**
-  = system — matching the filter chips above. The one-line toolbar has
-  **All · Errors · Commands · System** chips (each chip lights up in its
-  category color), a **🗑 Clear** button (empties the on-screen log; the history
-  is rotated to `bot_activity.jsonl.1` on disk), and a **free-text search** box.
-- **Custom icon** — the dashboard and the sign-in page use the bot's own logo
-  as both the **header mark** and the **browser favicon** (PNG + ICO, served from
-  `assets/`).
-- **Header & footer** — the header shows the **version**, a **live
-  `up: H:MM:SS` uptime** for the dashboard process (ticks every second), and the
-  current **commit hash** in that order. The footer reads *"built by
-  [NWinn](https://linktr.ee/nwinn) for the community to make managing events
-  easier"* — **NWinn** is a hyperlink to the author's Linktree (opens in a new
-  tab), styled **blue and underlined** so it reads as a link without hovering.
-- **DJ list & lookups** — DJ count, list freshness, and a one-click
-  **Re-pull** button.
-- **Pending DJ additions** — the `/adddj` review queue: how many community
-  suggestions are waiting, a **new** badge on fresh ones, each entry with the
-  DJ's name + a jump-to-issue link, and a **Check now** button. See
-  [Suggesting a new DJ](#suggesting-a-new-dj-community).
-- **Updates & version** — current version, **Check for updates** (auto-runs on
-  load and every 10 min; queries GitHub Releases), **Update & restart** (pulls
-  the latest code and restarts the bot — no manual file copying), and
-  **Restart All** (kills the bot *and* the dashboard, then relaunches a fresh
-  dashboard — one-click headless management).
-
-The dashboard binds to `0.0.0.0` so it's reachable across your local network.
-**Keep it there** — don't expose the dashboard port to the public internet.
-Use the strong password; it's the gate to the controls.
-<img width="967" height="863" alt="VRCDJ_bot Dashboard screenshot" src="https://github.com/user-attachments/assets/ff46ba52-1999-48c2-bd83-032b94685de1" />
-<img width="948" height="791" alt="image" src="https://github.com/user-attachments/assets/a88ac30c-0943-4cfe-8303-c0fb7ed4fed0" />
-
-
----
-
-## Releasing & updating
-
-### How versioning works
-
-The version lives in exactly one place: [`version.py`](version.py)
-(`VERSION = "1.9.1"`, `MAJOR.MINOR.PATCH`). It flows to the dashboard, the
-bot's startup log, and GitHub Releases.
-
-- **Patch** (default): every small fix or tweak bumps the *third* number:
-  `1.9 → 1.9.1 → 1.9.2 …`
-- **Minor**: a feature or notable add bumps the *second* number and resets the
-  patch: `1.9.x → 1.10.0`
-- **Major**: the *first* number, `1.x → 2.0.0`, only on a big overhaul — and
-  only when the maintainer decides it.
-
-### Cutting a release
-
-From the project folder:
-
-```bash
-venv/bin/python release.py --message "Add /foo command"   # patch bump → 1.9.1
-venv/bin/python release.py --minor                        # minor bump → 1.10.0
-venv/bin/python release.py --major                        # 1.x → 2.0.0 (rare)
-venv/bin/python release.py --dry-run                      # preview, change nothing
-```
-
-`release.py` bumps `version.py`, commits, tags `v<new>`, and (if the `gh` CLI
-and network are available) creates a **GitHub Release** so it shows up in the
-Releases section and is downloadable. See
-[GitHub Releases](https://github.com/NWinnVR/VRCDJ_bot/releases).
-
-### Updating a running bot
-
-On the machine where the bot runs, either:
-
-- click **Check for updates → Update & restart** on the dashboard, or
-- **Restart All** (same card) to flush the bot *and* the dashboard in one shot
-  and come back on the latest code — the cleanest path on a **headless server**,
-  or
-- `git pull && restart` (or just re-run the launcher).
-
-Because it's a public repo, the update path is plain `git pull` — no private
-file copying, no zips.
-
----
-
-## Changelog
-
-- **v1.12.0** — **`/signup`: a live slot sign-up board for DJs & dancers.**
-  - **📅 New `/signup` command** — the host posts a slot-signup board in the
-    DJ/dancer channel; everyone else **self-serves** their own slots with one
-    click. The bot opens an **"Event Creation"** modal **prefilled** with the
-    exact board layout (title, `#1…#N` slot lines, Doors Open line, slot-length
-    line), the host reviews/tweaks/submits, and the bot posts the board with a
-    **Pick Slot** and an **Edit Event** button.
-  - **🖱 Pick Slot** — a **private** prompt (only the clicking user sees it)
-    with one button per slot, in order. Click `#1` to claim slot 1 (click
-    again to cancel). Multiple people on a slot show space-separated; the whole
-    channel sees it update **in real time**. Per-slot and per-person limits are
-    enforced; no double-booking.
-  - **✏️ Edit Event** — re-opens the modal; saving edits the **same post in
-    place** (no duplicate event) and **preserves everyone already signed up**,
-    matched by slot timestamp.
-  - **⏱ Smart time handling** — start accepts raw unix (`1788670800`) or a
-    ham-time wrap (`10pm ET`); the **Doors Open** line is auto-derived from slot
-    1 minus `doors_lead` (default 15 min); the slot-length line **switches to
-    hours** past 60 minutes.
-  - **♻️ Persistent** — assignments live in `signup_events.json` (git-ignored)
-    and each event's buttons are **re-registered on restart**, so a board keeps
-    working across bot restarts. New modules: `signup.py` (pure engine),
-    `signup_store.py` (state), `signup_ui.py` (modals + views).
-  - **🐛 Fixed a Windows-only crash** — `zoneinfo` (used by `/timeslots` and
-    `/signup` for time-of-day starts like "10pm ET") required the `tzdata`
-    package, which wasn't pinned; without it those commands raised
-    `ZoneInfoNotFoundError` on Windows. `tzdata` is now in `requirements.txt`.
-  - **`/help` + README** now document the sign-up board.
-- **v1.11.0** — **Rich Presence actually ships, a new error counter, and a startup you can read.**
-  - **👀 Rich Presence — fixed so it actually shows.** The bot's stdout was
-    going into a pipe the dashboard never read, and on Windows that ~4KB buffer
-    fills fast — once it did, the bot *blocked on the next `print()`* and its
-    event loop (including the presence push) stalled. The bot's console now
-    writes to `bot_console.log` instead of an undrained pipe, and the first
-    presence push is logged to the Activity Log as `presence_up` (or
-    `presence_error`) so the outcome is visible, not a guess. **The status now
-    reliably appears** under the bot in the member list.
-  - **🔴 "Errors This Session" counter** — a new stat on the *Bot Process*
-    status line (next to **PID / Uptime / State**), in **light red**, counting
-    the `error`-level events since the current bot session started. It resets
-    on every (re)start, so a handful of stale errors from a previous session
-    don't haunt the current one. `/api/status` now reports
-    `errors_this_session`.
-  - **🪵 A startup you can read** — the bot now narrates each boot phase to
-    the Activity Log: `boot` (version · commit · pid · discord.py version),
-    `boot_config` (presence on/off · kill-switch · dj-refresh cadence ·
-    **sheet configured or not**), `boot_djlist` (cached count · freshness ·
-    URL), then `boot_connect`. So "what is the bot doing while it starts?" has
-    an answer right in the log.
-  - **Dashboard: tighter *Bot Process* card** — the **Rich Presence Toggle**
-    (relabeled from "member-list status") now sits **on the same line** as the
-    🗑 Reset "All Time" Counter button, right-aligned; the redundant
-    *"this session's count already resets on every start"* note is gone.
-  - **The `No sheet URL configured` error was stale** — it fired this morning
-    before the sheet URL was in `bot_config.json`; the next refresh (414 DJs)
-    succeeded. The new `boot_config` line now reports the sheet's status at
-    every boot so an empty URL is obvious *before* it ever errors.
-- **v1.10.0** — **Rich Presence: the bot shows its live session uptime in the
-  Discord member list, plus a couple of polish fixes.**
-  - **👀 Rich Presence — live session uptime** — the bot now sets a Discord
-    custom status reading `up: H:MM:SS · v1.10.0`, visible under its name in
-    the **member list** of any server it's in. It ticks every minute and
-    measures the **current session** (resets on restart), matching the
-    dashboard's *Bot process* uptime. A background task pushes it via
-    `change_presence()` and reuses the `ready_at` session timestamp; it's
-    cancelled cleanly on shutdown. See [Rich Presence](#rich-presence-live-session-uptime-in-discord).
-  - **New `/presence on|off` command** — toggle the status on and off. Cosmetic
-    only (never touches commands); safe for any member to use. Registered
-    staff-only alongside `/dj-refresh` if you want to restrict it.
-  - **Dashboard: 👀 Presence switch** — a new toggle on the *Bot process* card
-    (with a live preview of the status text) controls the same setting.
-    `/api/status` now reports `presence`, and the new `/api/presence-toggle`
-    endpoint flips it; the bot applies the change within a minute, **no
-    restart needed**.
-  - **Footer NWinn link is blue + underlined** — the *NWinn* link in the
-    "built by NWinn…" footer is now styled **blue and underlined** so it reads
-    as a link without having to hover.
-  - **3-point versioning in action** — this is the first **minor** release
-    (`1.9.x → 1.10.0`): a new feature bumps the second number and resets the
-    patch, exactly per the policy set in 1.9.1.
-- **v1.9.1** — **A little more breathing room + 3-point versioning.**
-  - **Ticking dashboard uptime in the header** — the header now shows a live
-    `up: H:MM:SS` timer (dashboard-process uptime) between the version and the
-    commit hash, like the WyBot dashboard. It updates every second; the value
-    comes from a `dash_started_at` epoch the backend captures at startup.
-  - **Bot Process counters: label left, number right** — each usage stat
-    (uptime / DJ lookups / prompts) now spreads its **label to the left** and
-    the **number to the right** of its own cell (`justify-content:space-between`),
-    so the eye tracks "what" then "how much" without the number crowding the word.
-  - **Space between log timestamp and text** — the log line now puts a small
-    gap between the `YYYY-MM-DD HH:MM:SS` stamp and the entry text, so long
-    timestamps no longer run into the first word.
-  - **Footer: NWinn → Linktree** — the *NWinn* name in the *"built by NWinn for
-    the community…"* footer is now a hyperlink to
-    [linktr.ee/nwinn](https://linktr.ee/nwinn) (opens in a new tab).
-  - **3-point versioning** — `version.py` now ships `MAJOR.MINOR.PATCH`.
-    `release.py` defaults to a **patch** bump (`1.9 → 1.9.1`), with `--minor`
-    (`→ 1.10.0`) and `--major` (`→ 2.0.0`). `version_tuple()` returns a 3-tuple
-    and `bump()` / `write_version()` understand the patch position, so the
-    version flows correctly to the dashboard, the bot log, and GitHub Releases.
-- **v1.9** — **A tighter, prettier dashboard — dates, colors, clear, and a custom icon.**
-  - **Custom icon everywhere** — your DJ-bot logo (PNG + ICO) is now the
-    **header mark** on the dashboard *and* sign-in page, and the **browser
-    favicon** (served from `assets/`, auth-gated like the rest of the app).
-  - **Dates on every log line** — timestamps now show **`YYYY-MM-DD HH:MM:SS`**
-    (date + time, in your local zone) instead of time-only, so a bot running for
-    weeks or months stays readable and older entries keep their date context.
-  - **🗑 Clear logs button** — inline on the log toolbar, just before the search
-    box. It empties the on-screen log and rotates the history to disk
-    (`bot_activity.jsonl.1`), so you can tidy the view without losing the data.
-    CSRF-protected; a "log cleared" event is written.
-  - **Vibrant, consistent color scheme** — the log lines and the filter chips
-    now use the **same category colors**: **red** = errors, **blue** = commands,
-    **violet** = system, **amber** = warnings. Each filter chip lights up in its
-    own category color when active, so the eye can tell at a glance which class
-    of event is on screen.
-  - **Tighter layout (width over height)** — the **Bot Process** usage counters
-    and the **Pending DJ Additions** rows are compacted to use the horizontal
-    space instead of stacking taller rows; the Pending DJ description is
-    shortened to one line.
-  - **Footer** — now reads *"built by NWinn for the community to make managing
-    events easier"* (the version number still auto-updates with the release).
-  - **Sign-in page** — matches the dashboard: same icon logo + favicon.
-- **v1.8** — **Activity-log times are now correct on every device.**
-  - **Fixed the "random / goes backwards" log timestamps.** Entries were
-    written in the *server's* local time with **no timezone marker**
-    (`2026-09-10T15:03:05.130`). A browser on a device set to a different
-    zone (phone, tablet, another box) interpreted that naive string with *its*
-    offset, so the same entry showed a different time depending on where you
-    opened the dashboard — and could even look like it "went backwards" against
-    your wall clock. Entries are now stamped in explicit **UTC**
-    (`2026-09-10T20:03:05.130Z`), which every browser converts to the viewer's
-    local time correctly, and the sequence is always monotonic. `_parse_ts`
-    keeps reading both old and new entries, so nothing breaks on the cutover.
-- **v1.7** — **Task Manager visibility + last-checked timestamp.**
-  - **Shows in Task Manager like WyBot** — the dashboard now sets its console
-    window title to
-    `VRCDJ_bot — Control Dashboard · v<ver> · pid <pid> · <uptime>`, refreshed
-    every 30 s with a live ticking uptime counter. It appears in the Task
-    Manager **Apps** tab with its PID, just like the WyBot dashboard.
-  - **Last-checked time** — the **Updates & Version** card now stamps
-    `last checked: HH:MM:SS` on every auto/manual check, so on a headless box
-    you can glance and see it really is checking.
-- **v1.6** — **Reliable control: Stop / Restart / Update that actually work,
-  plus one-click headless management.**
-  - **Fixed the "another bot is already running" loop** — the real bug. The bot
-    is launched through `vrcjb.exe` (a copy of `python.exe` whose Windows
-    launcher re-execs a *child* `python.exe`). The dashboard tracked the
-    launcher PID, so **Stop / Restart / Update killed only the launcher and
-    orphaned the real bot** — which kept beating the heartbeat and refused every
-    respawn. `BotManager.stop()` now kills the **whole process tree**
-    (`taskkill /F /T`, with a targeted fallback) and **waits for the heartbeat
-    to go stale** before spawning a replacement, so a respawn can't collide with
-    a ghost.
-  - **New "Restart All" button** (Updates & Version card) — one click **kills
-    the bot and the dashboard**, spawns a fresh detached dashboard, and exits.
-    Built for a **headless server**: no window to click, no manual relaunch.
-    CSRF-protected like every other state change.
-  - **Self-restart is port-safe** — the relaunched dashboard waits for the port
-    to free before binding, so it can't crash on a "port already in use" race.
-  - **Updates card checks by itself** — the check now runs **on page load and
-    every 10 minutes** (shared `checkUpdates()`), instead of sitting on
-    "checking…" until you clicked **Check For Updates**. **Update & Restart**
-    is disabled while you're already up to date.
-  - **How to kill a stuck bot from the dashboard (headless):** Stop/Restart now
-    works (they use the tree-kill), or press **Restart All** for a full flush.
-    Both are safe to run unattended — the new process is fully detached from
-    the old one.
-- **v1.5** — **Reliability + a much richer dashboard.**
-  - **`/adddj` GitHub 401 fixed** — the bot now authenticates to GitHub with a
-    proper token, and the error message **self-diagnoses** (tells you exactly
-    what's wrong and how to fix it) instead of surfacing a bare "HTTP 401".
-  - **Activity Log shows *who* and *where*** — the username and server name
-    were previously never displayed (a field mismatch); now every entry shows
-    them. `/status`, `/help` and **bot joins/leaves** are now logged too.
-  - **Log toolbar** — a compact one-line row of **filter chips** (All ·
-    Errors · Commands · System) + a **free-text search** box, plus a
-    "showing X of Y" counter. Log history cap raised **100 → 400** entries.
-  - **Pending DJ Additions** card moved up to sit directly **below the log**.
-  - **README** — one-click **"Add it to your Discord"** install section near the
-    top with a step-by-step walkthrough.
-  - **Dashboard title-cased** throughout (Bot Process, Activity Log, Updates &
-    Version, stat labels, buttons, Sign Out).
-  - Ships the `verify_adddj.py` end-to-end pipeline test.
-- **v1.4** — `/adddj` community DJ suggestions (name + link required, genres
-  / availability optional; a VRCDN link auto-expands to all three versions
-  using the `/vrcdn` engine); GitHub **issue** drop-box (no pastebin, no sheet
-  editing, no sheet access needed); dashboard **Pending DJ additions** checker
-  (new badge + Check now); dashboard layout tidy (Start / Stop / Restart inline
-  on the status row, activity log moved under Bot process); **bundles the full
-  feature set into the released code** — usage counters, the `/on`·`/off`
-  removal, and the distinct process names; README + setup + forker guidance
-  refresh.
-- **v1.3** — usage counters (replies this session, all-time total with a
-  Reset button, live server count).
-- **v1.2** — dashboard-hang fix (git-spawn robustness); `/on`·`/off` removed
-  (the dashboard is the only kill-switch); distinct process names
-  (`vrcjd.exe` / `vrcjb.exe`) so it's easy to tell from other bots in Task
-  Manager; default master list.
-- **v1.1** — DJ sheet-URL wiring fix (the sheet URL now flows through
-  `dj_sheet`), runtime cache ignored.
-- **v1.0** — initial public release: `/dj`, `/vrcdn`, `/djlineup`,
-  `/timeslots`, `/status`, `/help`, `/dj-refresh` (plus the then-current
-  `/on`·`/off`), the event auto-lineup, the LAN web dashboard, portable
-  Windows/macOS/Linux, and the duplicate-instance guard.
-
-> **Note on v1.2 / v1.3:** those release *notes* describe the features, but
-> the earlier tags were cut before the code for them was committed. **v1.4 is
-> the first release that actually ships the complete feature set** — if you
-> already downloaded a v1.2 / v1.3 zip, just update to v1.4 (or `git pull` on
-> `main`).
 
 ---
 
@@ -754,85 +166,6 @@ keeping the dashboard port off the public internet.
 
 ---
 
-## Project layout
-
-```
-VRCDJ_bot/
-├── bot.py               # the Discord bot (DJ + time-slot commands, no LLM)
-├── dashboard.py         # the Flask LAN dashboard + bot process manager
-├── version.py           # the version number (single source of truth)
-├── release.py           # bump + tag + GitHub release tooling
-├── scrub.py             # output sanitizer (no ANSI / paths / control bytes)
-├── envload.py           # tiny dependency-free .env loader
-│
-├── dj_sheet.py          # read/refresh the DJ master list (public CSV)
-├── timeslots.py         # time-slot block builder (DST-aware)
-├── djlineup.py          # A–Z slot labeling
-├── vrcdn.py             # VRCDN URL parsing / expansion
-├── event_post.py        # event auto-lineup logic
-├── discord_send.py      # chunked Discord message sender
-├── dj_add.py            # /adddj — classify + format a DJ suggestion (pure)
-├── gh_add.py            # /adddj — GitHub issue drop-box (create + list)
-├── verify_adddj.py      # end-to-end test of the /adddj → GitHub → dashboard pipeline
-├── bot_config.py        # config (sheet URL, defaults)
-├── bot_state.py         # runtime state + duplicate-instance guard
-├── botlog.py            # structured activity log
-├── repo_version.py      # git commit stamping
-│
-├── templates/           # the dashboard HTML (dark theme)
-├── bot.env.example      # copy to bot.env, fill in your token  (no secrets)
-├── .gitignore           # keeps bot.env + state + venv out of git
-├── requirements.txt     # discord.py + Flask (that's all)
-├── install.bat          # Windows one-time setup
-├── run_dashboard.bat    # Windows: start dashboard + bot  (primary)
-├── run_bot.bat          # Windows: start bot only
-└── run.sh               # macOS / Linux: setup + start
-```
-
----
-
-## Running in parallel with another bot
-
-Yes — this is a whole separate application with its own token, its own state
-files, and its own dashboard port. Run it next to any other Discord bot you
-have. The only guard is against a *second copy of VRCDJ_bot itself*
-(duplicate-instance), which is what you want.
-
-If two bots would use the **same dashboard port**, set a different
-`DASHBOARD_PORT` for one of them.
-
-### Telling VRCDJ_bot apart from other bots in Task Manager
-
-The launchers run the code under **distinct process names** instead of a
-generic `python.exe`, so when several bots are on one machine you can see at a
-glance which is which:
-
-| Process | What it is |
-|---|---|
-| `vrcjd.exe` | the **dashboard** (the Flask web portal) |
-| `vrcjb.exe` | the **bot** (the Discord process the dashboard spawns) |
-
-Any bot you don't rename (e.g. one running as plain `python.exe`) is *not*
-VRCDJ_bot. These names are just friendly copies of the venv's interpreter
-inside `venv/`, recreated automatically by `install.bat` / `run.sh`, so a fresh
-machine gets them too.
-
----
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| `DISCORD_BOT_TOKEN missing` | Add your token to `bot.env` and restart. |
-| Bot connects but commands don't appear | Wait up to ~60 s for global command sync; check the Developer Portal that the bot is invited and the Message Content Intent is on. |
-| Dashboard won't open from another device | Make sure both devices are on the same network; use the LAN IP (not `localhost`); check your firewall allows the port. |
-| `port already in use` | Set a different `DASHBOARD_PORT` in `bot.env`. |
-| `another VRCDJ_bot is already running (PID …)` | You started a second copy of the *same* bot. Stop the first one, or you're fine — the guard did its job. |
-| `/dj` finds nobody | Run `/dj-refresh`, and confirm `DJ_SHEET_URL` points at a viewable sheet with a `Name` column. |
-| PyNaCl warning on start | Harmless — voice support is an optional extra this bot doesn't use. |
-
----
-
 ## License
 
 MIT — do whatever you want with it; it's yours to fork and run for your own
@@ -841,3 +174,4 @@ community. See [LICENSE](LICENSE).
 ## Credits
 
 Built for the VRChat DJ scene, by NWinn to make running events easier.
+
