@@ -14,11 +14,15 @@ VRCDJ_bot/
 ├── envload.py           # tiny dependency-free .env loader
 │
 ├── dj_sheet.py          # read/refresh the DJ master list (public CSV)
-├── timeslots.py         # time-slot block builder (DST-aware)
+├── timeslots.py         # time-slot block builder (DST-aware, NL starts)
+├── timeslots_ui.py      # /timeslots ambiguity clarify view (button question)
 ├── djlineup.py          # A–Z slot labeling
 ├── vrcdn.py             # VRCDN URL parsing / expansion
 ├── event_post.py        # event auto-lineup logic
 ├── discord_send.py      # chunked Discord message sender
+├── signup.py            # /signup pure engine (slot block render/parse)
+├── signup_store.py      # /signup state on disk (assignments survive restarts)
+├── signup_ui.py         # /signup modals + pick/edit views
 ├── dj_add.py            # /adddj — classify + format a DJ suggestion (pure)
 ├── gh_add.py            # /adddj — GitHub issue drop-box (create + list)
 ├── verify_adddj.py      # end-to-end test of the /adddj → GitHub → dashboard pipeline
@@ -46,11 +50,15 @@ VRCDJ_bot/
 | `scrub.py` | Output sanitizer (no ANSI / paths / control bytes) for clean logs. |
 | `envload.py` | Tiny dependency-free `.env` loader. |
 | `dj_sheet.py` | Reads/refreshes the DJ master list from a public Google Sheet (CSV, no API key). |
-| `timeslots.py` | Time-slot block builder (DST-aware timezone math). |
+| `timeslots.py` | Time-slot block builder (DST-aware timezone math) + natural-language start parsing. |
 | `djlineup.py` | A–Z slot labeling for event lines. |
 | `vrcdn.py` | VRCDN URL parsing / expansion into all three link versions. |
 | `event_post.py` | The event auto-lineup logic (bound channels, `<t:…:t>` timestamps). |
 | `discord_send.py` | Chunked Discord message sender (splits long posts safely). |
+| `timeslots_ui.py` | `/timeslots` ambiguity clarify view — one button question for a fuzzy start time. |
+| `signup.py` | `/signup` pure engine: slot-block render + parse (incl. host free-form extras). |
+| `signup_store.py` | `/signup` state on disk — assignments survive bot restarts. |
+| `signup_ui.py` | `/signup` modals + the Pick Slot / Edit Event views. |
 | `dj_add.py` | `/adddj` — classify + format a DJ suggestion (pure logic). |
 | `gh_add.py` | `/adddj` — GitHub issue drop-box (create suggestions + list pending ones). |
 | `verify_adddj.py` | End-to-end test of the `/adddj` → GitHub → dashboard pipeline. |
@@ -66,4 +74,5 @@ VRCDJ_bot/
 | `install.bat` / `run.sh` | One-time setup: creates the venv, installs deps, makes friendly process copies. |
 | `run_dashboard.bat` / `run_bot.bat` | Windows launchers (dashboard + bot; bot only). |
 
-> **Rule for keeping it current:** granular detail lands *here*; the README keeps only quick-guide one-liners + links to these pages.
+> **Rule for keeping it current:** granular detail lands *here*; the README keeps only quick-guide one-liners + links to these pages.
+

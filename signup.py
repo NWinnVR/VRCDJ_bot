@@ -37,6 +37,7 @@ OUTPUT (the golden template — exactly the format Nadia wants):
       # New Event
       - Doors Open: **__<t:1788669000:F>__** (<t:1788669000:R>)
       - Each slot is 60 minutes long
+      - **__2__** People can sign up for a slot. **__3__** slots per person.
       - Click on the slots you want to sign-up for
 
       > #1, <t:1788670800:t>
@@ -46,7 +47,9 @@ OUTPUT (the golden template — exactly the format Nadia wants):
       > #6, <t:1788688800:t>
 
   (Doors = slot #1 minus the lead, default 15 min.  "60 minutes long" is
-  computed from the slot time and switches to hours past 60.)
+  computed from the slot time and switches to hours past 60.  The limits line
+  is baked from the host's slash inputs — a blank/`UNLIMITED` field renders
+  **__Unlimited__** / **__No__** wording; see `render_limits_line`.)
 """
 from __future__ import annotations
 
@@ -57,10 +60,10 @@ import timeslots  # reuse parse_start_time / parse_day / parse_duration / slots
 
 __all__ = [
     "MAX_SLOTS", "MAX_SLOTS_EDIT", "MAX_TITLE_LEN", "MAX_TEXT_LEN",
-    "DEFAULT_DOORS_LEAD", "DEFAULT_SLOT_SECONDS", "DEFAULT_PER_SLOT",
-    "DEFAULT_PER_PERSON",
-    "build_slots", "format_duration", "render_template",
-    "render_event", "parse_event_text", "slot_label", "mention",
+    "DEFAULT_DOORS_LEAD", "DEFAULT_SLOT_SECONDS", "UNLIMITED",
+    "DEFAULT_PER_SLOT", "DEFAULT_PER_PERSON",
+    "build_slots", "format_duration", "render_limits_line",
+    "render_template", "render_event", "parse_event_text", "slot_label", "mention",
 ]
 
 # --- caps (Discord message = 2000 chars; stay safely under) -----------------
@@ -72,8 +75,9 @@ MAX_TEXT_LEN = 1900
 # --- defaults ---------------------------------------------------------------
 DEFAULT_DOORS_LEAD = 15            # minutes before slot 1 ("" / 0 = omit line)
 DEFAULT_SLOT_SECONDS = 3600        # one-hour sets unless told otherwise
-DEFAULT_PER_SLOT = 1               # one name per slot unless told otherwise
-DEFAULT_PER_PERSON = 1             # one slot per person unless told otherwise
+UNLIMITED = -1                     # sentinel: no limit (used for per-slot / per-person)
+DEFAULT_PER_SLOT = UNLIMITED       # unlimited people per slot unless told otherwise
+DEFAULT_PER_PERSON = UNLIMITED     # unlimited slots per person unless told otherwise
 
 
 # ---------------------------------------------------------------------------
@@ -154,24 +158,100 @@ def _doors_line(doors_ts: int) -> str:
     return (f"- Doors Open: **__<t:{doors_ts}:F>__** (<t:{doors_ts}:R>)")
 
 
+def render_limits_line(per_slot: int, per_person: int) -> str:
+    """The signup-limits bullet, baked from the host's slash inputs.
+
+    `UNLIMITED` (or any value <= 0) means "no limit".  Each half renders its
+    own limited / unlimited wording.  A count of 1 is singular ("1 Person",
+    "1 Slot"); anything higher stays plural.  (Per the spec: a LIMITED
+    per-person cap reads "... N slots per person." while an UNLIMITED one reads
+    "... No slots per person limit" — the two halves differ on purpose.)
+
+      per_slot=2  per_person=3  ->  - **__2__** People can sign up for a slot. **__3__** slots per person.
+      per_slot=1  per_person=1  ->  - **__1__** Person can sign up for a slot. **__1__** Slot per person.
+      per_slot=2  unlimited     ->  - **__2__** People can sign up for a slot. **__No__** slots per person limit
+      unlimited  per_person=3  ->  - **__Unlimited__** People can sign up for a slot. **__3__** slots per person.
+      unlimited  unlimited     ->  - **__Unlimited__** People can sign up for a slot. **__No__** slots per person limit
+    """
+    ps = int(per_slot)
+    if ps > 0:
+        slot_word = f"**__{ps}__**"
+        people_word = "Person" if ps == 1 else "People"
+    else:  # UNLIMITED
+        slot_word = "**__Unlimited__**"
+        people_word = "People"
+
+    pp = int(per_person)
+    if pp > 1:
+        person_clause = f"**__{pp}__** slots per person."
+    elif pp == 1:
+        person_clause = "**__1__** Slot per person."
+    else:  # UNLIMITED
+        person_clause = "**__No__** slots per person limit"
+
+    return f"- {slot_word} {people_word} can sign up for a slot. {person_clause}"
+
+
+def _notes_block(notes: str) -> List[str]:
+    """The host's free-form lines as a list (outer blank lines trimmed).
+    Empty/whitespace-only notes -> []."""
+    if not notes or not notes.strip():
+        return []
+    out = [l.rstrip() for l in notes.strip("\n").splitlines()]
+    while out and not out[0].strip():
+        out.pop(0)
+    while out and not out[-1].strip():
+        out.pop()
+    return out
+
+
 def render_template(title: str,
                     slot_timestamps: List[int],
                     slot_seconds: int,
-                    doors_ts: Optional[int]) -> str:
+                    doors_ts: Optional[int],
+                    per_slot: int = DEFAULT_PER_SLOT,
+                    per_person: int = DEFAULT_PER_PERSON,
+                    notes: str = "",
+                    pre_slot_notes: str = "",
+                    slot_extras: Optional[dict] = None,
+                    slot_pre_extras: Optional[dict] = None) -> str:
     """The prefill for the "Event Creation" modal (NO names yet).
 
-    Layout = Nadia's golden template: `# title`, the info bullets (doors /
-    slot length / pick instruction), a blank line, then the `> #N, <t:…:t>`
-    slot block.
+    Layout = Nadia's golden template: `# title`, [host notes], the info
+    bullets (doors / slot length / signup limits / pick instruction), then any
+    mid-zone notes, a blank line, and the `> #N, <t:…:t>` slot block.  Slot
+    lines carry host text on BOTH sides of the token: pre-text inline before it
+    (`> #1, teams dfg <t:…:t>` — e.g. an inline DJ name) and trailing text
+    after it.  With no notes/extras the output is byte-identical to before.
     """
     lines = [f"# {title.strip() or 'New Event'}"]
+    nb = _notes_block(notes)
+    if nb:
+        lines.extend(nb)
+        lines.append("")
     if doors_ts:
         lines.append(_doors_line(doors_ts))
     lines.append(f"- Each slot is {format_duration(slot_seconds)} long")
+    lines.append(render_limits_line(per_slot, per_person))
     lines.append("- Click on the slots you want to sign-up for")
+    pn = _notes_block(pre_slot_notes)
+    if pn:
+        lines.extend(pn)
     lines.append("")
-    lines.append("\n".join(f"> {slot_label(i)}, <t:{ts}:t>"
-                           for i, ts in enumerate(slot_timestamps)))
+    extras = _norm_extras(slot_extras)
+    pres = _norm_extras(slot_pre_extras)
+    slot_lines = []
+    for i, ts in enumerate(slot_timestamps):
+        pre = pres.get(i, "")
+        if pre:
+            line = f"> {slot_label(i)}, {pre} <t:{ts}:t>"
+        else:
+            line = f"> {slot_label(i)}, <t:{ts}:t>"
+        extra = extras.get(i, "")
+        if extra:
+            line += "  " + extra
+        slot_lines.append(line)
+    lines.extend(slot_lines)
     return "\n".join(lines)
 
 
@@ -179,30 +259,71 @@ def render_event(title: str,
                  slot_timestamps: List[int],
                  slot_seconds: int,
                  doors_ts: Optional[int],
-                 assignments: Optional[dict] = None) -> str:
+                 assignments: Optional[dict] = None,
+                 per_slot: int = DEFAULT_PER_SLOT,
+                 per_person: int = DEFAULT_PER_PERSON,
+                 notes: str = "",
+                 pre_slot_notes: str = "",
+                 slot_extras: Optional[dict] = None,
+                 slot_pre_extras: Optional[dict] = None) -> str:
     """The LIVE event post (slots + info + a name under each filled slot).
 
     `assignments` maps slot index (0-based) -> list of user ids.  A filled
-    slot gets its names appended to the line:  `> #1, <t:…:t>  <@id> <@id>`.
-    Names are "space-space" separated (two spaces -> a hard line break in
-    Discord) so multiple people on one slot stack cleanly.  Empty slots keep
-    the bare `> #N, <t:…:t>` so everyone can see what's open.
-    Layout matches the modal: `# title`, info bullets, blank line, slots.
+    slot gets its names appended to the line; host slot text rides on both
+    sides of the token — pre-text inline BEFORE it (e.g. an inline DJ name:
+    `> #1, teams dfg <t:…:t>`), trailing text after — with the signed-up names
+    following everything ("space-space" separated = hard line breaks).  Empty
+    slots keep the bare `> #N, <t:…:t>` (+ host text, if any) so everyone can
+    see what's open.  Layout matches the modal: `# title`, [top notes], info
+    bullets (incl. the limits line), [mid notes between the click bullet and
+    the slots], blank line, slots.  No host text -> identical to before.
     """
     assignments = assignments or {}
     lines = [f"# {title.strip() or 'New Event'}"]
+    nb = _notes_block(notes)
+    if nb:
+        lines.extend(nb)
+        lines.append("")
     if doors_ts:
         lines.append(_doors_line(doors_ts))
     lines.append(f"- Each slot is {format_duration(slot_seconds)} long")
+    lines.append(render_limits_line(per_slot, per_person))
     lines.append("- Click on the slots you want to sign-up for")
+    pn = _notes_block(pre_slot_notes)
+    if pn:
+        lines.extend(pn)
     lines.append("")
+    extras = _norm_extras(slot_extras)
+    pres = _norm_extras(slot_pre_extras)
     for i, ts in enumerate(slot_timestamps):
-        line = f"> {slot_label(i)}, <t:{ts}:t>"
+        pre = pres.get(i, "")
+        if pre:
+            line = f"> {slot_label(i)}, {pre} <t:{ts}:t>"
+        else:
+            line = f"> {slot_label(i)}, <t:{ts}:t>"
+        extra = extras.get(i, "")
+        if extra:
+            line += "  " + extra
         ids = assignments.get(i) or assignments.get(str(i)) or []
         if ids:
             line += "  " + "  ".join(mention(u) for u in ids)
         lines.append(line)
     return "\n".join(lines)
+
+
+def _norm_extras(slot_extras: Optional[dict]) -> dict:
+    """{str|int index: text} -> {int index: cleaned text}, empties dropped."""
+    out = {}
+    for k, v in (slot_extras or {}).items():
+        if not v:
+            continue
+        txt = _clean_slot_extra(str(v))
+        if txt:
+            try:
+                out[int(k)] = txt
+            except (TypeError, ValueError):
+                pass
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -216,10 +337,57 @@ _TITLE_RE = re.compile(r"^\s*(?:#|##|###)\s+(.*\S)\s*$", re.M)
 # so it will not be mistaken for a slot.
 _SLOT_LINE_RE = re.compile(
     r"(?:#\s*(\d+)\s*[,.)]?\s*)?(<t:(\d+):t>)", re.I)
+# One `<t:N:t>` token (slot lines only — doors use :F / :R, never :t).
+_SLOT_TOKEN_RE = re.compile(r"<t:(\d+):t>", re.I)
 # The doors-open line:  - Doors Open: **__<t:…:F>__** (<t:…:R>)
 _DOORS_RE = re.compile(r"doors\s*open[^>]*<t:(\d+):[fF]", re.I)
 # The slot length:  Each slot is 90 minutes long
 _DUR_RE = re.compile(r"each slot is\s+(.+?)\s+long", re.I)
+# The standard pick-instruction bullet ("- Click on the slots ...").
+_CLICK_RE = re.compile(r"click\s+(?:on\s+|at\s+)?(?:the\s+)?slots?", re.I)
+# A user mention like <@1234567890> / <@!123...>.  Mentions that land inside a
+# slot line's EXTRA text are live sign-up data (rendered from the store), not
+# host-written copy — stripping them at parse time keeps an edit round-trip
+# from baking stale mentions into the stored extras.
+_MENTION_RE = re.compile(r"<@!?\d+>")
+
+
+def _clean_slot_extra(raw: str) -> str:
+    """Normalize a slot line's trailing text: drop user mentions (live data,
+    not host copy), collapse whitespace runs to single spaces."""
+    return " ".join(_MENTION_RE.sub("", raw).split())
+
+
+# A slot line's PRE-token text may carry the quote marker + label as typed
+# ("> #1. teams dfg <t:…:t>") — strip both before cleaning, so what remains is
+# exactly the host's inline text (e.g. a DJ name).
+_SLOT_LABEL_PREFIX_RE = re.compile(
+    r"^\s*[>›]+\s*(?:#\s*\d+\s*[,.)]?\s*)?", re.I)
+
+
+def _slot_pre_text(raw: str) -> str:
+    """A slot line's text BEFORE its <t:…:t> token (e.g. an inline DJ name),
+    cleaned like the post-token extra.  No label/quote on the line -> ''."""
+    return _clean_slot_extra(_SLOT_LABEL_PREFIX_RE.sub("", raw))
+
+
+def _is_structured_line(s: str) -> bool:
+    """True if a stripped line is part of the machine-generated block (title
+    heading, doors / duration / limits / click bullets) — i.e. NOT host
+    free-form notes.  A `>` slot quote with NO <t:…:t> token (a host's own
+    bullet typed as a quote) is their TEXT -> False, so it lands in notes and
+    can never be silently dropped."""
+    if s.startswith("#"):
+        return True
+    if "<t:" in s:                      # slots (:t) and doors (:F / :R) alike
+        return True
+    if _DUR_RE.search(s):
+        return True
+    if re.search(r"can sign up for a slot", s, re.I):
+        return True
+    if _CLICK_RE.search(s):
+        return True
+    return False
 
 
 def parse_event_text(text: str) -> dict:
@@ -227,42 +395,86 @@ def parse_event_text(text: str) -> dict:
 
     Returns:
       {
-        "title":        str,                 # from the first `# heading`
-        "slots":        [int, ...],          # slot timestamps, in listed order
-        "slot_seconds": int,                 # from "each slot is N long"
-        "doors_ts":     int | None,          # from the doors-open line
+        "title":           str,                 # from the first `# heading`
+        "slots":           [int, ...],          # slot timestamps, in listed order
+        "slot_seconds":    int,                 # from "each slot is N long"
+        "doors_ts":        int | None,          # from the doors-open line
+        "notes":           str,                 # host lines BEFORE the click bullet
+        "pre_slot_notes":  str,                 # host lines BETWEEN it and the slots
+        "slot_extras":     {i0: text},          # per-slot text AFTER its token (e.g. DJ)
+        "slot_pre_extras": {i0: text},          # per-slot text BEFORE it (inline DJ name)
       }
+
+    `notes` / `pre_slot_notes` — every line that is NOT part of the structured
+    block (title, slot quotes, doors / duration / limits / click bullets), kept
+    in order; blanks collapse away.  The SPLIT follows the standard "Click on
+    the slots ..." bullet: lines above it are TOP notes (rendered under the
+    title); lines between it and the first slot line sit MID (rendered right
+    above the slot block) — a host types a note wherever they want and it
+    lands exactly there.  `slot_extras` / `slot_pre_extras` — the text on each
+    slot line after, respectively before, its `<t:…:t>` token (e.g. an inline
+    DJ name `> #1. teams dfg <t:…:t>` -> `slot_pre_extras {0: "teams dfg"}`);
+    the typed quote / "#N." label is stripped from the pre-text, user mentions
+    are stripped from both (they're live sign-up data, re-added on render), and
+    empties dropped ({ } = no extras).
 
     Tolerant of how the host types it (quote, "#N," prefix, ordering).  If a
     slot block is present it is authoritative for the slot list; the duration
     falls back to the spacing between consecutive slots when not stated.
     """
     text = text or ""
+    lines = text.splitlines()
 
+    # --- title --------------------------------------------------------
     tm = _TITLE_RE.search(text)
+    title_idx: Optional[int] = None
     if tm:
         title = tm.group(1).strip()
+        for i, ln in enumerate(lines):
+            if re.match(r"^\s*#{1,3}\s+\S", ln):
+                title_idx = i
+                break
     else:
         # No `# heading` — tolerate a bare title line (the first line that is
         # not blank, not a `>` slot quote, not a `-` info bullet, and not a
         # `<t:…:t>` slot timestamp).  In the live flow the modal's name field
-        # is authoritative; this is just a tolerant fallback.
+        # is authoritative; this is just a tolerant fallback.  The matched line
+        # is remembered so it doesn't ALSO land in `notes`.
         title = ""
-        for line in text.splitlines():
-            s = line.strip()
+        for i, ln in enumerate(lines):
+            s = ln.strip()
             if not s or s.startswith("#") or s.startswith(">") or s.startswith("-"):
                 continue
             if re.search(r"<t:\d+:t>", s, re.I):
                 continue
             title = s
+            title_idx = i
             break
         title = title or "New Event"
 
+    # --- slots + per-slot extras (line order == document order) -------
     slots: List[int] = []
-    for m in _SLOT_LINE_RE.finditer(text):
-        ts = int(m.group(3))
-        if not slots or slots[-1] != ts:
-            slots.append(ts)
+    slot_extras: dict = {}      # {slot index: text AFTER the <t:…:t> token}
+    slot_pre_extras: dict = {}  # {slot index: text BEFORE it, e.g. a DJ name}
+    for ln in lines:
+        pos = 0
+        while True:
+            m = _SLOT_TOKEN_RE.search(ln, pos)
+            if not m:
+                break
+            ts = int(m.group(1))
+            if not slots or slots[-1] != ts:
+                idx = len(slots)
+                slots.append(ts)
+            else:  # same timestamp twice on the list -> maps to that slot
+                idx = len(slots) - 1
+            pre = _slot_pre_text(ln[:m.start()])
+            if pre:
+                slot_pre_extras.setdefault(idx, pre)
+            extra = _clean_slot_extra(ln[m.end():])
+            if extra:
+                slot_extras.setdefault(idx, extra)
+            pos = m.end()
 
     doors = None
     dm = _DOORS_RE.search(text)
@@ -280,8 +492,41 @@ def parse_event_text(text: str) -> dict:
         # Derive the spacing from the first gap (most events are evenly spaced).
         slot_seconds = max(1, int(slots[1]) - int(slots[0]))
 
+    # --- host free-form lines, SPLIT BY POSITION -----------------------
+    # Everything before the standard "Click on the slots ..." bullet is the
+    # TOP zone (`notes` — clarifying bullets at the top of the post); every
+    # other non-structured line sits in the MID zone between that bullet and
+    # the slot block (`pre_slot_notes`, rendered right above the slots).  A
+    # host types a new note wherever they want and it lands exactly there.
+    click_idx: Optional[int] = None
+    for i, ln in enumerate(lines):
+        if _CLICK_RE.search(ln):
+            click_idx = i
+            break
+    first_slot_idx: Optional[int] = None
+    for i, ln in enumerate(lines):
+        if re.search(r"<t:\d+:t>", ln, re.I):
+            first_slot_idx = i
+            break
+
+    notes_lines, pre_notes_lines = [], []
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        if not s or i == title_idx:
+            continue
+        if _is_structured_line(s) or re.search(r"<t:\d+:t>", s, re.I):
+            continue
+        if click_idx is None or i < click_idx:
+            notes_lines.append(s)
+        elif first_slot_idx is None or (first_slot_idx is not None and i < first_slot_idx):
+            pre_notes_lines.append(s)
+
     return {"title": title, "slots": slots,
-            "slot_seconds": slot_seconds, "doors_ts": doors}
+            "slot_seconds": slot_seconds, "doors_ts": doors,
+            "notes": "\n".join(notes_lines),
+            "pre_slot_notes": "\n".join(pre_notes_lines),
+            "slot_extras": slot_extras,
+            "slot_pre_extras": slot_pre_extras}
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +583,38 @@ def _self_test() -> int:
     check("pick instruction", "- Click on the slots you want to sign-up for" in tpl)
     check("under 1900 chars", len(tpl) < MAX_TEXT_LEN, len(tpl))
 
+    print("=== 3b. render_limits_line (all four combos) ===")
+    check("both set",
+          render_limits_line(2, 3) ==
+          "- **__2__** People can sign up for a slot. **__3__** slots per person.",
+          render_limits_line(2, 3))
+    check("both 1 -> singular (Person / Slot)",
+          render_limits_line(1, 1) ==
+          "- **__1__** Person can sign up for a slot. **__1__** Slot per person.",
+          render_limits_line(1, 1))
+    check("slot 1 / person unlimited -> singular Person",
+          render_limits_line(1, UNLIMITED) ==
+          "- **__1__** Person can sign up for a slot. **__No__** slots per person limit",
+          render_limits_line(1, UNLIMITED))
+    check("slot set / person unlimited",
+          render_limits_line(2, UNLIMITED) ==
+          "- **__2__** People can sign up for a slot. **__No__** slots per person limit",
+          render_limits_line(2, UNLIMITED))
+    check("slot unlimited / person set",
+          render_limits_line(UNLIMITED, 3) ==
+          "- **__Unlimited__** People can sign up for a slot. **__3__** slots per person.",
+          render_limits_line(UNLIMITED, 3))
+    check("both unlimited (defaults)",
+          render_limits_line(UNLIMITED, UNLIMITED) ==
+          "- **__Unlimited__** People can sign up for a slot. **__No__** slots per person limit",
+          render_limits_line(UNLIMITED, UNLIMITED))
+    check("template carries the limits line (2/3)",
+          render_limits_line(2, 3) in
+          render_template("New Event", [1788670800], 3600, None, 2, 3))
+    check("event carries the limits line (unlimited)",
+          render_limits_line(UNLIMITED, UNLIMITED) in
+          render_event("New Event", [1788670800], 3600, None, {}))
+
     print("=== 4. render_event with assignments ===")
     ev = render_event(
         "New Event",
@@ -375,6 +652,126 @@ def _self_test() -> int:
     check("loose title", back3["title"] == "my friday show", back3["title"])
     check("loose slots", back3["slots"] == [1788670800, 1788674400], back3["slots"])
     check("loose duration", back3["slot_seconds"] == 3600, back3["slot_seconds"])
+
+    print("=== 5b. notes + slot extras (host free-form text) ===")
+    # No notes/extras -> parse yields empty values and the render is unchanged.
+    check("plain template: no notes", back["notes"] == "", repr(back["notes"]))
+    check("plain template: no extras", back["slot_extras"] == {},
+          back["slot_extras"])
+
+    # A host adds clarifying bullets + a DJ name on slot #2.
+    with_notes = (
+        "# New Event\n"
+        "- **Special guest night** — bring your own drinks!\n"
+        "- Doors close at 3am sharp.\n"
+        "\n"
+        + tpl)
+    bn = parse_event_text(with_notes)
+    check("notes parsed (2 lines)",
+          bn["notes"] == ("- **Special guest night** — bring your own drinks!"
+                          "\n- Doors close at 3am sharp."), repr(bn["notes"]))
+    check("slots survive notes",
+          bn["slots"] == [1788670800, 1788674400, 1788678000], bn["slots"])
+    # Render with the parsed pieces: notes appear before doors; extras on slot.
+    evn = render_event("New Event", [1788670800, 1788674400, 1788678000],
+                       3600, 1788669900, {}, notes=bn["notes"])
+    check("render has notes block",
+          evn.startswith("# New Event\n- **Special guest night** — "
+                         "bring your own drinks!\n- Doors close at 3am sharp.\n"),
+          repr(evn[:120]))
+    # DJ name extra on slot #2 (index 1).
+    evx = render_event("New Event", [1788670800, 1788674400, 1788678000],
+                       3600, None, {}, slot_extras={1: "Kiki"})
+    check("slot #2 carries the extra", "> #2, <t:1788674400:t>  Kiki" in evx)
+    check("other slots stay bare", "> #1, <t:1788670800:t>\n" in evx
+          and "> #3, <t:1788678000:t>" in evx.split("\n")[-1])
+    # Extra + a signed-up name on the same slot stack (extra first).
+    evx2 = render_event("New Event", [1788670800, 1788674400],
+                        3600, None, {1: [555]}, slot_extras={1: "Kiki"})
+    check("extra then name on filled slot",
+          "> #2, <t:1788674400:t>  Kiki  <@555>" in evx2)
+    # Live event (back2 = parse of `ev`, names on slot #1): the signed-up
+    # mentions are LIVE data — they must NOT land in slot_extras.
+    check("mentions stripped from extras (live event)",
+          back2["slot_extras"] == {}, back2["slot_extras"])
+
+    print("=== 5c. pre-token extras + positional notes (real-world modal) ===")
+    # Nadia's VERBATIM test modal: inline DJ names BEFORE the token, and a
+    # bullet typed BETWEEN the click line and the slot block — it must stay
+    # in place (mid zone), NOT jump to the top.
+    real_modal = (
+        "- Doors Open: **__<t:1792802100:F>__** (<t:1792802100:R>)\n"
+        "- Each slot is 24 minutes long\n"
+        "- **__2__** People can sign up for a slot. **__2__** slots per person.\n"
+        "- Click on the slots you want to sign-up for\n"
+        "- Yui, this is a test input where I would want to append one.\n"
+        "\n"
+        "> #1. teams dfg <t:1792803600:t>\n"
+        "> #2. fdsa <t:1792805040:t>\n"
+        "> #3. These are the areas where I need to put dj's fades "
+        "<t:1792806480:t>\n"
+        "> #4. <t:1792807920:t>\n"
+        "> #5. <t:1792809360:t>\n"
+        "> #6. <t:1792810800:t>")
+    pr = parse_event_text(real_modal)
+    check("real: 6 slots", len(pr["slots"]) == 6, str(pr["slots"]))
+    check("real: pre-extras {teams dfg, fdsa, sentence}",
+          pr["slot_pre_extras"] == {
+              0: "teams dfg", 1: "fdsa",
+              2: "These are the areas where I need to put dj's fades"},
+          str(pr["slot_pre_extras"]))
+    check("real: no post-token extras (all text was pre)",
+          pr["slot_extras"] == {}, str(pr["slot_extras"]))
+    check("real: TOP notes empty (nothing above the click bullet)",
+          pr["notes"] == "", repr(pr["notes"]))
+    check("real: mid note stays in place",
+          pr["pre_slot_notes"] == "- Yui, this is a test input where "
+                                  "I would want to append one.",
+          repr(pr["pre_slot_notes"]))
+
+    # Render the live post back from those parsed pieces — it must show the
+    # inline names BEFORE their tokens and the mid bullet right above slots.
+    real_ev = render_event(
+        "Yui this is the test modal", pr["slots"], pr["slot_seconds"],
+        pr["doors_ts"], {}, per_slot=2, per_person=2,
+        notes=pr["notes"], pre_slot_notes=pr["pre_slot_notes"],
+        slot_extras={str(k): v for k, v in pr["slot_extras"].items()},
+        slot_pre_extras={str(k): v for k, v in pr["slot_pre_extras"].items()})
+    check("real render: #1 inline name before token",
+          "> #1, teams dfg <t:1792803600:t>" in real_ev, real_ev[:400])
+    check("real render: #2 inline name before token",
+          "> #2, fdsa <t:1792805040:t>" in real_ev, real_ev[:500])
+    check("real render: mid bullet sits between click line and slots",
+          "- Yui, this is a test input where I would want to append one.\n"
+          "\n> #1," in real_ev, real_ev[-400:])
+    check("real render: NO stray top-zone bullet after the title",
+          not real_ev.startswith("# \n-Yui") and
+          "- Yui" not in real_ev.split("- Doors Open")[0],
+          repr(real_ev[:80]))
+
+    # Round-trip: parse the rendered post again — everything survives.
+    pr2 = parse_event_text(real_ev)
+    check("real round-trip: pre-extras preserved",
+          pr2["slot_pre_extras"] == {0: "teams dfg", 1: "fdsa",
+                                     2: "These are the areas where I need to put dj's fades"},
+          str(pr2["slot_pre_extras"]))
+    check("real round-trip: mid note preserved + in place",
+          pr2["pre_slot_notes"] == "- Yui, this is a test input where "
+                                   "I would want to append one.",
+          repr(pr2["pre_slot_notes"]))
+    check("real round-trip: top notes still empty", pr2["notes"] == "",
+          repr(pr2["notes"]))
+
+    # A signed-up name on slot #1 must stack AFTER the inline DJ name.
+    real_ev2 = render_event(
+        "Yui this is the test modal", pr["slots"], pr["slot_seconds"],
+        pr["doors_ts"], {0: [777]}, per_slot=2, per_person=2,
+        notes=pr["notes"], pre_slot_notes=pr["pre_slot_notes"],
+        slot_extras={str(k): v for k, v in pr["slot_extras"].items()},
+        slot_pre_extras={str(k): v for k, v in pr["slot_pre_extras"].items()})
+    check("real render: DJ name then signed-up mention on #1",
+          "> #1, teams dfg <t:1792803600:t>  <@777>" in real_ev2,
+          real_ev2[:220])
 
     print("=== 6. label / mention helpers ===")
     check("slot_label 0 -> #1", slot_label(0) == "#1")

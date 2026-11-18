@@ -103,6 +103,7 @@ import event_post     # noqa: E402  (event-post DJ lineup, no LLM)
 import vrcdn          # noqa: E402  (/vrcdn — expand one VRCDN URL to all three)
 import djlineup       # noqa: E402  (/djlineup — A–Z letters on time-slot lines)
 import timeslots      # noqa: E402  (/timeslots — generate the <t:…:t> DJ-slot block)
+import timeslots_ui   # noqa: E402  (/timeslots — the clarify-question buttons, v1.7.0 port)
 import signup         # noqa: E402  (/signup — pure engine: render + parse)
 import signup_store   # noqa: E402  (/signup — persistent slot-assignment state)
 import signup_ui      # noqa: E402  (/signup — modals + button views)
@@ -364,7 +365,7 @@ class Bot(discord.Client):
         self.add_public(self.cmd_djlineup, name="djlineup",
                         description="Label an event's time-slot lines A–Z so DJs sign up by letter, not time.")
         self.add_public(self.cmd_timeslots, name="timeslots",
-                        description="Generate the DJ time-slot block — start time, day, and how many slots; I do the timezone math.")
+                        description="Generate the DJ time-slot block — natural start (\"fri at 10pm EST\") + slot count.")
         self.add_public(self.cmd_signup, name="signup",
                         description="Host: post a live slot-signup board — DJs/dancers pick their own slots (real-time).")
         self.add_public(self.cmd_status, name="status",
@@ -631,9 +632,9 @@ class Bot(discord.Client):
         await discord_send.send_long(ctx, labelled)
 
     @discord.app_commands.describe(
-        start_time="Time the first slot starts, e.g. 10pm ET or 22:00",
+        start_time="When slot 1 starts — natural speech works (\"fri at 10pm EST\", \"tonight 9\"). Ambiguous? I ask.",
         slot_count="Total number of slots",
-        day="The day, e.g. friday or June 5th (skip if start is a full timestamp)",
+        day="The day, e.g. friday or June 5th (skip if start_time names a day)",
         doors_lead="Minutes before slot 1 for the doors line (default 15, blank = none)",
         add_letters="Append letter emotes :regional_indicator_a: to each slot — type yes to enable",
         slot_duration="How long each slot is, e.g. 1 hour, 90 min, 1.5 hours",
@@ -646,7 +647,25 @@ class Bot(discord.Client):
                             add_letters: Optional[str] = "no",
                             slot_duration: Optional[str] = "1 hour"):
         """Generate a block of equally-spaced DJ time-slots as `<t:…:t>` lines.
-        DST-aware (OS tz database). Deterministic — NO LLM, NO model call."""
+
+        Deterministic — NO LLM, NO model call.  Staff give a start time
+        ("10pm ET", "22:00", or a unix ts / <t:…:t>), a slot count ("6"), and
+        — unless the start is already a full timestamp — a day ("friday",
+        "June 5th", "2026-09-10").  The bot does the timezone math
+        (DST-aware, via the OS tz database) and returns the whole block, one
+        slot per line, ready to paste into an event post.
+
+        Optional fields:
+          day           the day (closest-upcoming weekday / date).  Not needed
+                        when start_time is a bare unix ts or <t:…:t> — that
+                        input carries its own date.
+          doors_lead    minutes before slot 1 for the "doors open" line
+                        (default "15"; empty = no doors line).
+          add_letters   "yes" prepends A–Z letter emotes (like /djlineup).
+          slot_duration "1 hour" (default) / "2 hour" / "1.5 hours" / "90 min".
+
+        Gated by the master kill-switch only (same as /dj, /host).
+        """
         err = lookup_unavailable_error()
         if err:
             await ctx.response.send_message(err)
@@ -654,8 +673,34 @@ class Bot(discord.Client):
         asker = ctx.user.name
         guild = ctx.guild.name if ctx.guild else "DM"
 
+        # 1) Fuzzy resolution FIRST (v1.7.0 port): a clear natural-language
+        #    start ("friday at 10pm EST") resolves straight to one instant; an
+        #    ambiguous one gets a ONE-question button row instead of guessing.
         try:
-            out = timeslots.build(start_time, slot_count, day,
+            kind, cands = timeslots.resolve_candidates(
+                start_time, day=day)
+        except ValueError as ve:
+            botlog.log("timeslots", who=asker, guild=guild, level="warn",
+                       detail=f"bad input: start={start_time!r} → {ve}")
+            await ctx.response.send_message(f"⚠️ {ve}")
+            return
+
+        if kind != "ok":
+            botlog.log("timeslots", who=asker, guild=guild,
+                       detail=(f"ambiguous ({kind}): start={start_time!r} day={day!r} → asked"))
+            view = timeslots_ui.TimeslotsClarifyView(
+                cands, instance_key=f"{ctx.user.id}:{int(time.time())}",
+                requester_id=ctx.user.id, slot_count=slot_count,
+                doors_lead=doors_lead, add_letters=add_letters,
+                slot_duration=slot_duration)
+            await ctx.response.send_message(
+                f"🤔 {timeslots.question_text(kind, len(cands))}", view=view)
+            return
+
+        try:
+            # 2) Resolved to a single instant — build from the unix ts so the
+            #    timezone math is fully settled (day no longer needed).
+            out = timeslots.build(str(cands[0].ts), slot_count, None,
                                   doors_lead=doors_lead,
                                   add_letters=add_letters,
                                   slot_duration=slot_duration)
@@ -753,7 +798,10 @@ class Bot(discord.Client):
         title = "New Event"
 
         # Prefill the modal with the exact template, then hand it over.
-        prefill = signup.render_template(title, slot_ts, slot_seconds, doors_ts)
+        # The limits line is baked from the slash inputs (blank -> Unlimited).
+        prefill = signup.render_template(
+            title, slot_ts, slot_seconds, doors_ts,
+            per_slot=per_slot, per_person=per_person)
         # One modal class for both create and edit (msg_id=None here = create).
         modal = signup_ui.SignupModal(
             prefill_name=title, prefill_block=prefill,
@@ -801,10 +849,13 @@ class Bot(discord.Client):
             "  • `/djlineup <times>` — paste an event's ham-time slots and I'll "
             "label them in order A→Z (then AA, AB, …) so DJs sign up for "
             "\"slot B\" instead of a time-zone",
-            "  • `/timeslots <start> <count>` — generate the whole block of "
-            "`<t:…:t>` DJ slots (e.g. `/timeslots 10pm ET 6 friday`, or just "
-            "`/timeslots 1789178400 6` — a timestamp has its own date). "
-            "Times: ET/CT/MT/PT/UTC/BST/GMT, DST-aware. "
+            "  • `/timeslots <start> <count>` — I'll generate the whole block of "
+            "`<t:…:t>` DJ slots for you. Say it naturally — "
+            "`/timeslots friday at 10pm EST 6`, `tonight 9` / `tomorrow 8am`, or a "
+            "timestamp (`/timeslots 1789178400 6` — it has its own date). No month → current "
+            "month; bare weekday → next one. If I can't be sure what you meant, "
+            "I ask ONE quick question with buttons and post the slots the second "
+            "you tap. Times: ET/CT/MT/PT/UTC/BST/GMT, DST-aware. "
             "Optional: `doors_lead:` (min before slot 1, default 15), "
             "`add_letters:` yes/no, `slot_duration:` (default 1 hour)",
             "",
@@ -821,6 +872,8 @@ class Bot(discord.Client):
             "(click again to cancel). Others see it update instantly",
             "  • **Edit Event** (host) → re-opens the window; save edits the "
             "same post in place and **keeps everyone who's already signed up**",
+            "  • host extras: free-form lines/bullets you add above the slots "
+            "(e.g. `extra: MC for slot #2`) ride along with that slot",
             "  • start time: raw unix (`1788670800`) or a ham-time wrap "
             "(`10pm ET`); `doors_lead` = minutes before slot 1 (default 15)",
             "",

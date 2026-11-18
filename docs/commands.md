@@ -9,7 +9,7 @@ A small set of **slash commands** aimed at running VRChat DJ events:
 | `/dj <name>` | Look up one or more DJs (comma-separated) — pulls their Twitch / VRCDN links from the master list. |
 | `/vrcdn <url or name>` | Take one VRCDN URL (RTSP / MPEG-TS) or a streamer name and expand it into **all three** link versions (RTSP, MPEG-TS, preview). |
 | `/djlineup` | Label an event's time-slot lines **A–Z** so DJs sign up by letter, not by time. |
-| `/timeslots` | Generate a full DJ time-slot block from a start time, day, and slot count — the bot does the timezone math (DST-aware). |
+| `/timeslots` | Generate a full DJ time-slot block from a start time, day, and slot count — the bot does the timezone math (DST-aware). Natural-language starts work (`fri at 10pm EST`, `tonight 9`); an ambiguous start gets one quick button question. |
 | `/signup` | **Host a live slot sign-up board** — DJs/dancers pick their own slots with one click, real-time and visible to everyone, with per-slot and per-person limits and a host **Edit Event** that keeps already-filled slots. → [deep dive below](#slot-sign-up-board-signup). |
 | `/adddj` | **Suggest a new DJ** for the master list — name + link required, genres / availability optional. A VRCDN link is expanded to all three versions for you. → [deep dive below](#suggesting-a-new-dj-community). |
 | `/status` | Bot availability, DJ-list freshness, and the version. |
@@ -75,6 +75,13 @@ first slot's time — `doors_lead` is how many minutes before slot 1 the doors
 open (default 15), so the Doors timestamp = slot 1 − `doors_lead`.
 The slot-length line auto-updates and **switches to hours** past 60 minutes
 ("Each slot is 90 minutes long" / "2 hours long").
+
+**Host extras (new in 1.13.0):** in the Event Creation window the host can add
+free-form text above the slot list — extra bullets like a special-guest note or
+a doors-close time — plus a short per-slot note after any `> #n, <t:…:t>` line
+(typically the DJ's name). Both ride along with the board through every update:
+picks, edits, and restarts. The per-slot note sits next to (or above) whoever
+is signed up on that slot, so the lineup is readable at a glance.
 
 **Persistence:** assignments live in `signup_events.json` (git-ignored,
 per-machine) and the event's buttons are **re-registered on every bot
@@ -178,4 +185,5 @@ any server it's in.
 > **Note:** the member-list status is a *global* bot presence — it's the same
 > text in every server the bot is in (that's how Discord presence works), which
 > is exactly why it doubles as a nice at-a-glance "the bot is alive and has
-> been up a while" signal.
+> been up a while" signal.
+

@@ -2,6 +2,21 @@
 
 # Changelog
 
+- **v1.13.0** — **The four recent WyBot fixes, ported to the public bot.**
+  - **🗓 `/timeslots` natural-language starts** — `start_time` now accepts plain
+    English like "fri at 10pm EST" or "tonight 9" (unix and ham-times still work).
+    When a start is ambiguous, the bot asks **ONE quick button question** with up
+    to three timestamped candidates ("Fri Nov 21 · 10:00 PM — pick this one") plus
+    a Cancel — new `timeslots_ui.py` clarify view (the WyBot pattern).
+  - **✍️ `/signup` host free-form text** — the modal block now carries extra
+    bullets above the slot list (`notes`) and per-slot notes that ride along with
+    each slot line (`slot_extras`): they survive creation, every pick-refresh,
+    the Edit Event prefill, and retroactive edits; old events render unchanged.
+  - **📝 Descriptions re-synced** — `/timeslots` + `add_public` now carry the NL
+    wording (all command strings <100 chars for Discord); `/help` mentions host
+    extras on `/signup`.
+  - New module: `timeslots_ui.py`; e2e suite extended to **66 checks** (free-form
+    round-trips included).
 - **v1.12.0** — **`/signup`: a live slot sign-up board for DJs & dancers.**
   - **📅 New `/signup` command** — the host posts a slot-signup board in the
     DJ/dancer channel; everyone else **self-serves** their own slots with one
@@ -212,4 +227,5 @@
 > the earlier tags were cut before the code for them was committed. **v1.4 is
 > the first release that actually ships the complete feature set** — if you
 > already downloaded a v1.2 / v1.3 zip, just update to v1.4 (or `git pull` on
-> `main`).
+> `main`).
+

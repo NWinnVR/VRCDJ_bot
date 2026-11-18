@@ -33,15 +33,11 @@ from typing import Optional
 _HERE = Path(__file__).parent
 STATE_PATH = _HERE / "signup_events.json"
 
-# A person can't be in two DIFFERENT events at the same moment (the
-# "one person, one signup at a time" rule).  Within a single event they may
-# hold up to `max_per_person` slots.
-#
-# We enforce per-event limits strictly (that's the spec).  The cross-event
-# rule is best-effort: we track which event each user is currently in and
-# release it when they cancel every slot in that event or when they join a
-# different one.  This is a soft guard — it never blocks a legitimate signup,
-# it just prevents one user from quietly stacking slots across events.
+# A person's limits are enforced PER EVENT (see toggle_slot): up to
+# `max_per_person` slots on a given event, and up to `max_per_slot` people on
+# any one slot.  A limit of `UNLIMITED` (<= 0) means "no limit" for that
+# half.  (There is deliberately NO cross-event cap — a person may hold slots
+# on as many different events as they like.)
 
 _lock = threading.RLock()
 
@@ -81,11 +77,47 @@ def _write(data: dict) -> None:
 # ---------------------------------------------------------------------------
 # Event CRUD
 # ---------------------------------------------------------------------------
+def clear_user(msg_id: str, user_id: int) -> dict:
+    """Remove `user_id` from EVERY slot of event `msg_id` (the panel's
+    **Clear** button).  Returns:
+      {"ok": bool, "removed": int, "assignments": {str: [ids]}}
+    `removed` is the number of slots the user was actually on (0 is fine —
+    the button still works as a no-op confirmation).
+    """
+    with _lock:
+        data = _read(STATE_PATH)
+        rec = data["events"].get(str(msg_id))
+        if rec is None:
+            return {"ok": False, "removed": 0, "assignments": {}}
+        uid = int(user_id)
+        asg = rec.setdefault("assignments", {})
+        removed = 0
+        for idx in list(asg.keys()):
+            ids = [int(x) for x in asg.get(idx, [])]
+            if uid in ids:
+                ids.remove(uid)
+                removed += 1
+                if ids:
+                    asg[idx] = ids
+                else:
+                    asg.pop(idx, None)
+        if removed:
+            rec["updated_at"] = time.time()
+            _write(data)
+        return {"ok": True, "removed": removed, "assignments": asg}
+
+
 def create_event(msg_id: str, guild_id: str, channel_id: str,
                  title: str, slots: list, slot_seconds: int,
                  doors_ts: Optional[int], max_per_slot: int,
-                 max_per_person: int, host_id: int) -> dict:
-    """Register a NEW event post.  `slots` is the list of slot timestamps."""
+                 max_per_person: int, host_id: int, notes: str = "",
+                 pre_slot_notes: str = "", slot_extras: Optional[dict] = None,
+                 slot_pre_extras: Optional[dict] = None) -> dict:
+    """Register a NEW event post.  `slots` is the list of slot timestamps;
+    the host's free-form text — `notes` (top bullets), `pre_slot_notes`
+    (mid-zone bullets, between the click line and the slots) and per-slot
+    text on both sides of each token (`slot_extras` trailing / e.g. DJ name,
+    `slot_pre_extras` inline before it) — is kept so every re-render keeps them."""
     with _lock:
         data = _read(STATE_PATH)
         rec = {
@@ -99,6 +131,14 @@ def create_event(msg_id: str, guild_id: str, channel_id: str,
             "max_per_slot": int(max_per_slot),
             "max_per_person": int(max_per_person),
             "host_id": int(host_id),
+            # Host free-form text (re-emitted on every render; empty = none).
+            "notes": str(notes or ""),
+            "pre_slot_notes": str(pre_slot_notes or ""),
+            # {str slot_index: text} — JSON keys are strings.
+            "slot_extras": ({str(k): v for k, v in (slot_extras or {}).items()
+                             if v}),
+            "slot_pre_extras": ({str(k): v for k, v in (slot_pre_extras or {}).items()
+                                 if v}),
             # assignments: { slot_index(str): [user_id, ...] }
             "assignments": {},
             "created_at": time.time(),
@@ -131,16 +171,6 @@ def delete_event(msg_id: str) -> None:
 # ---------------------------------------------------------------------------
 # Slot assignment (the real-time, limit-enforced core)
 # ---------------------------------------------------------------------------
-def _count_user_across(data: dict, user_id: int) -> int:
-    """How many slots `user_id` currently holds ACROSS all events (soft guard)."""
-    total = 0
-    for rec in data["events"].values():
-        for ids in rec.get("assignments", {}).values():
-            if int(user_id) in [int(x) for x in ids]:
-                total += 1
-    return total
-
-
 def toggle_slot(msg_id: str, slot_index: int, user_id: int,
                 is_host: bool = False) -> dict:
     """Toggle `user_id` on slot `slot_index` (0-based) of event `msg_id`.
@@ -188,17 +218,18 @@ def toggle_slot(msg_id: str, slot_index: int, user_id: int,
                     "reason": None}
 
         # ---- add (sign up) ----
-        # Per-PERSON limit: enforced for EVERYONE, host included. (A host
-        # who set per-person=1 must still be limited to 1 slot — this was
-        # the bug where `is_host` skipped it and let a host stack unlimited.)
+        # Per-PERSON limit: enforced for EVERYONE, host included (a host who
+        # set per-person=N is capped to N slots).  A value <= 0 (UNLIMITED)
+        # means no cap at all — the check is simply skipped.
         mine = sum(1 for v in asg.values() if uid in [int(x) for x in v])
-        if mine >= max_per_person:
+        if max_per_person > 0 and mine >= max_per_person:
             return {"ok": False, "state": "limit_person", "assignments": asg,
                     "reason": f"you can hold at most {max_per_person} "
                               f"slot(s) here"}
         # Per-SLOT limit: enforced for everyone EXCEPT the host (a host may
         # place their own name on a slot even when it is already full).
-        if not is_host and len(ids) >= max_per_slot:
+        # A value <= 0 (UNLIMITED) means the slot never fills — skipped.
+        if max_per_slot > 0 and not is_host and len(ids) >= max_per_slot:
             return {"ok": False, "state": "full_slot", "assignments": asg,
                     "reason": f"slot #{slot_index + 1} is full "
                               f"({max_per_slot} max)"}
@@ -211,7 +242,9 @@ def toggle_slot(msg_id: str, slot_index: int, user_id: int,
 def edit_event(msg_id: str,
                title: str, slots: list, slot_seconds: int,
                doors_ts: Optional[int], max_per_slot: int,
-               max_per_person: int) -> dict:
+               max_per_person: int, notes: str = "",
+               pre_slot_notes: str = "", slot_extras: Optional[dict] = None,
+               slot_pre_extras: Optional[dict] = None) -> dict:
     """Update an event's times/info.  PRESERVES filled slots by timestamp.
 
     `slots` is the NEW list of slot timestamps.  Every existing assignment is
@@ -219,6 +252,14 @@ def edit_event(msg_id: str,
       * slot still present (same timestamp, possibly new position) -> kept
       * slot moved / dropped (timestamp gone) -> its names are dropped
       * brand-new slot -> starts empty
+
+    Host free-form text follows the same rules: `notes` / `pre_slot_notes`
+    are REPLACED by what's submitted (the edit modal is always prefilled with
+    them, so "what you see is what gets saved" — and a host who deletes them
+    in the modal clears them); existing per-slot extras (BOTH sides: trailing
+    `slot_extras` + inline pre-token text) travel WITH their slot by timestamp,
+    and any NEW text on a slot line overrides it.  A slot whose timestamp
+    disappears takes its extras with it (same as names).
 
     Returns the fresh assignment map (0-based index -> [ids]) for the NEW list.
     """
@@ -245,12 +286,46 @@ def edit_event(msg_id: str,
                 new_asg[str(ni)] = old_by_ts[ts]
                 preserved += 1
 
+        # --- host free-form text --------------------------------------
+        # Existing extras travel by timestamp (like assignments); the host's
+        # freshly-typed text on each slot line overrides it.  Both sides:
+        # trailing (`slot_extras`) and pre-token (`slot_pre_extras`).
+        def _remap_extra(old_dict, new_dict) -> dict:
+            old_by_ts = {}
+            for k, v in (old_dict or {}).items():
+                try:
+                    oi = int(k)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= oi < len(old_slots) and v:
+                    old_by_ts[old_slots[oi]] = str(v)
+            remapped = {}
+            for k, v in (new_dict or {}).items():
+                try:
+                    ni2 = int(k)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= ni2 < len(new_slots) and v and str(v).strip():
+                    remapped[str(ni2)] = str(v)
+            for ni3, ts in enumerate(new_slots):
+                if str(ni3) not in remapped and old_by_ts.get(ts):
+                    remapped[str(ni3)] = old_by_ts[ts]
+            return remapped
+
+        new_extras = _remap_extra(rec.get("slot_extras"), slot_extras)
+        new_pre_extras = _remap_extra(rec.get("slot_pre_extras"),
+                                      slot_pre_extras)
+
         rec["title"] = title
         rec["slot_timestamps"] = new_slots
         rec["slot_seconds"] = int(slot_seconds)
         rec["doors_ts"] = int(doors_ts) if doors_ts else None
         rec["max_per_slot"] = int(max_per_slot)
         rec["max_per_person"] = int(max_per_person)
+        rec["notes"] = str(notes or "")
+        rec["pre_slot_notes"] = str(pre_slot_notes or "")
+        rec["slot_extras"] = new_extras
+        rec["slot_pre_extras"] = new_pre_extras
         rec["assignments"] = new_asg
         rec["updated_at"] = time.time()
         _write(data)
@@ -262,7 +337,6 @@ def edit_event(msg_id: str,
 # Self-test  (run: python signup_store.py)  — uses a throwaway file.
 # ---------------------------------------------------------------------------
 def _self_test() -> int:
-    import signup  # not strictly needed here, keeps the module resolvable
     global STATE_PATH
     tmp = Path(__file__).parent / "_signup_selftest.json"
     if tmp.exists():
@@ -327,6 +401,108 @@ def _self_test() -> int:
     check("preserved filled-slot count == 1", ev["preserved"] == 1, ev["preserved"])
     check("kept names == [100, 300]",
           sorted(ev["assignments"].get("0", [])) == [100, 300], ev["assignments"])
+
+    print("=== 4b. notes + slot_extras persist & remap on edit ===")
+    Mx = "msgNotes"
+    create_event(Mx, "g", "c", "Guest Night", S, 3600, 1788669900, -1, -1,
+                 host_id=1, notes="- Bring your own drinks!",
+                 pre_slot_notes="- Special guest night!\n- Late set until 2am.",
+                 slot_extras={1: "Kiki", 2: "Rex"},
+                 slot_pre_extras={0: "teams dfg"})
+    rx = get_event(Mx)
+    check("notes stored verbatim", rx["notes"] == "- Bring your own drinks!",
+          rx.get("notes"))
+    check("mid notes stored verbatim",
+          rx["pre_slot_notes"] == "- Special guest night!\n- Late set until 2am.",
+          rx.get("pre_slot_notes"))
+    check("extras stored (str keys)", rx["slot_extras"] == {"1": "Kiki", "2": "Rex"},
+          rx.get("slot_extras"))
+    check("pre-extras stored (str keys)", rx["slot_pre_extras"] == {"0": "teams dfg"},
+          rx.get("slot_pre_extras"))
+    # Move: keep ts 1788678000 (=old idx2, "Rex") as new slot #1, and old idx1
+    # (ts 1788674400, "Kiki") — Rex travels to index 0.
+    evx = edit_event(Mx, "Guest Night v2", [1788678000, 1788674400], 3600,
+                     None, -1, -1)
+    rx = get_event(Mx)
+    check("extras moved with their timestamps (Rex->0, Kiki->1)",
+          rx["slot_extras"] == {"0": "Rex", "1": "Kiki"}, rx.get("slot_extras"))
+    # The pre-extra sat on old idx0 (ts 1788670800) — that timestamp was DROPPED,
+    # so it travels nowhere and is gone.
+    check("pre-extras dropped with their timestamp",
+          rx["slot_pre_extras"] == {}, rx.get("slot_pre_extras"))
+    # What-you-see-is-what-saves: no notes in the edit submission -> cleared.
+    check("notes cleared when the modal had none left",
+          rx["notes"] == "", repr(rx.get("notes")))
+    check("mid notes cleared too (not resubmitted)",
+          rx["pre_slot_notes"] == "", repr(rx.get("pre_slot_notes")))
+    # Host edits the same modal: new trailing text OVERRIDES, notes replaced.
+    edit_event(Mx, "Guest Night v3", [1788678000, 1788674400], 3600, None,
+               -1, -1, notes="- Doors close at 3am.",
+               pre_slot_notes="- Doors open late!", slot_extras={0: "New DJ"},
+               slot_pre_extras={1: "fdsa"})
+    rx = get_event(Mx)
+    check("new extra overrides; untouched extras stay",
+          rx["slot_extras"] == {"0": "New DJ", "1": "Kiki"},
+          rx.get("slot_extras"))
+    check("notes replaced", rx["notes"] == "- Doors close at 3am.",
+          rx.get("notes"))
+    check("mid notes stored on edit", rx["pre_slot_notes"] == "- Doors open late!",
+          rx.get("pre_slot_notes"))
+    check("new pre-extra lands; none elsewhere",
+          rx["slot_pre_extras"] == {"1": "fdsa"}, rx.get("slot_pre_extras"))
+
+    print("=== 5. UNLIMITED per-person lets a user take every slot ===")
+    # Fresh event, per-person=UNLIMITED(-1), per-slot=UNLIMITED.
+    M2 = "msgUnlim"
+    create_event(M2, "g", "c", "Open", [1788670800, 1788674400, 1788678000],
+                 3600, 1788669900, -1, -1, host_id=1)
+    rU1 = toggle_slot(M2, 0, 700)
+    rU2 = toggle_slot(M2, 1, 700)
+    rU3 = toggle_slot(M2, 2, 700)
+    check("user 700 on slot #1", rU1["state"] == "added", rU1)
+    check("user 700 on slot #2 (no per-person cap)", rU2["state"] == "added", rU2)
+    check("user 700 on slot #3 (no per-person cap)", rU3["state"] == "added", rU3)
+    # And a SECOND person can pile onto the SAME slot (no per-slot cap).
+    rU4 = toggle_slot(M2, 0, 800)
+    check("user 800 joins full-looking slot #1 (no per-slot cap)",
+          rU4["state"] == "added", rU4)
+    recU = get_event(M2)
+    check("slot #1 holds both 700 and 800",
+          sorted(recU["assignments"].get("0", [])) == [700, 800],
+          recU["assignments"])
+    # A LIMITED per-person event still caps (regression guard for the
+    # unlimited code path not leaking into limited events).
+    M3 = "msgLimited"
+    create_event(M3, "g", "c", "Capped", [1788670800, 1788674400, 1788678000],
+                 3600, 1788669900, 1, 1, host_id=1)
+    rL1 = toggle_slot(M3, 0, 900)
+    rL2 = toggle_slot(M3, 1, 900)
+    check("limited event: first slot ok", rL1["state"] == "added", rL1)
+    check("limited event: second slot blocked (per-person=1)",
+          rL2["state"] == "limit_person", rL2)
+
+    # --- 6. clear_user: the panel's **Clear** button ---------------------
+    # Use M2 (unlimited per-person) — user 700 is already on slots 0,1,2
+    # from §5, which is a perfect 3-slot setup for a one-tap clear.
+    print("=== 6. clear_user removes the user from every slot ===")
+    rec = get_event(M2)
+    on_before = sum(1 for v in rec["assignments"].values() if 700 in [int(x) for x in v])
+    check("setup: user 700 on 3 slots (M2 unlimited)", on_before == 3, on_before)
+    cr = clear_user(M2, 700)
+    rec2 = get_event(M2)
+    on_after = sum(1 for v in rec2["assignments"].values() if 700 in [int(x) for x in v])
+    check("clear_user: reports 3 removed", cr["removed"] == 3, cr)
+    check("clear_user: user 700 gone from every slot", on_after == 0, on_after)
+    # Other users on M2 (e.g. 800 on slot 0) must be untouched.
+    check("clear_user: leaves other users alone",
+          800 in [int(x) for x in rec2["assignments"].get("0", [])],
+          rec2["assignments"])
+    # Clearing a user who is on nothing is a harmless no-op.
+    cr2 = clear_user(M2, 700)
+    check("clear_user: no-op when already clear", cr2["removed"] == 0, cr2)
+    # Clearing on a missing event is safe.
+    cr3 = clear_user("no-such-event", 100)
+    check("clear_user: missing event ok=False", cr3["ok"] is False, cr3)
 
     # cleanup
     STATE_PATH = _HERE / "signup_events.json"

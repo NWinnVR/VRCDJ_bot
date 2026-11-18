@@ -369,6 +369,101 @@ async def run():
     check("all_events lists this event", msg_id in all_events,
           str(list(all_events)))
 
+    # ------------------------------------------------------------------
+    # 12) Host free-form text (extra bullets + per-slot DJ names): survives
+    #     creation, every pick-refresh, the Edit Event prefill, a retroactive
+    #     host edit — and old-style events render byte-identical. (v1.8.x port)
+    # ------------------------------------------------------------------
+    notes = ("- **Special guest night** — bring your own drinks!\n"
+             "- Doors close at 3am sharp.")
+    block12 = signup.render_template(
+        "Guest Night", new_slots, 3600, doors_ts + 3600,
+        per_slot=1, per_person=2, notes=notes, slot_extras={1: "Kiki", 2: "Rex"})
+    parsed12 = signup.parse_event_text(block12)
+    check("parse: notes round-trip verbatim", parsed12["notes"] == notes,
+          repr(parsed12["notes"]))
+    check("parse: extras {1:'Kiki', 2:'Rex'}",
+          parsed12["slot_extras"] == {1: "Kiki", 2: "Rex"},
+          str(parsed12["slot_extras"]))
+
+    ch12 = FakeChannel(cid=666, guild_id=777)
+    ch12._next = 20000  # separate id space from the first channel (no msg-id collision)
+    itx12 = FakeInteraction(ch12, host_uid, "Host")
+    await signup_ui.handle_submit(
+        itx12, name="Guest Night", block=block12, msg_id=None,
+        max_per_slot=1, max_per_person=2)
+    posted12 = None
+    for m in ch12.messages.values():
+        if m._view is not None:
+            posted12 = m
+            break
+    check("board 12 was posted", posted12 is not None)
+    mid12 = str(posted12.id)
+    rec12 = signup_store.get_event(mid12)
+    check("store 12: notes verbatim", rec12["notes"] == notes, repr(rec12["notes"]))
+    check("store 12: extras {str keys}",
+          rec12["slot_extras"] == {"1": "Kiki", "2": "Rex"},
+          str(rec12.get("slot_extras")))
+
+    # The post itself shows the notes block + DJ names on slots #2/#3.
+    post12 = ch12.messages[int(mid12)]
+    check("post 12: notes lines present",
+          "- **Special guest night** — bring your own drinks!" in post12.content
+          and "- Doors close at 3am sharp." in post12.content,
+          post12.content[:200])
+    check("post 12: DJ names inline on slots #2/#3",
+          f"> #2, <t:{new_slots[1]}:t>  Kiki" in post12.content
+          and f"> #3, <t:{new_slots[2]}:t>  Rex" in post12.content)
+
+    # A pick refresh must keep notes + extras AND add the new mention.
+    grid12 = signup_ui.SlotPickView(mid12, 8)
+    btn12 = find_button(grid12, signup_ui._slot_id(mid12, 1))
+    dj12_itx = FakeInteraction(ch12, 700, "Picky")
+    await btn12.callback(dj12_itx)
+    post12 = ch12.messages[int(mid12)]
+    check("after pick: mention on slot #2", "<@700>" in post12.content)
+    check("after pick: DJ extra KEPT alongside the mention",
+          f"> #2, <t:{new_slots[1]}:t>  Kiki  <@700>" in post12.content,
+          post12.content[:300])
+    check("after pick: notes still at top",
+          "- Doors close at 3am sharp." in post12.content)
+
+    # The Edit Event modal prefill is _render_rec(rec): notes + extras shown.
+    pref12 = signup_ui._render_rec(signup_store.get_event(mid12))
+    check("edit-prefill: notes + extras visible to the host",
+          "- Doors close at 3am sharp." in pref12 and "Kiki" in pref12)
+
+    # Retroactive host edit (Edit Event button -> modal -> submit): new note
+    # line + a NEW DJ name on slot #4; user 700's pick must survive.
+    block12b = signup.render_template(
+        "Guest Night", new_slots, 3600, doors_ts + 3600,
+        per_slot=1, per_person=2,
+        notes=notes + "\n- New line added!",
+        slot_extras={1: "Kiki", 2: "Rex", 3: "Nova"})
+    itx12b = FakeInteraction(ch12, host_uid, "Host")
+    await signup_ui.handle_submit(
+        itx12b, name="Guest Night", block=block12b, msg_id=mid12,
+        max_per_slot=1, max_per_person=2)
+    rec12b = signup_store.get_event(mid12)
+    check("edit 12: notes replaced (incl. new line)",
+          rec12b["notes"] == notes + "\n- New line added!", repr(rec12b["notes"]))
+    check("edit 12: extras {Kiki, Rex, Nova}",
+          rec12b["slot_extras"] == {"1": "Kiki", "2": "Rex", "3": "Nova"},
+          str(rec12b.get("slot_extras")))
+    post12 = ch12.messages[int(mid12)]
+    check("edit 12: post shows the new line + Nova on #4",
+          "- New line added!" in post12.content
+          and f"> #4, <t:{new_slots[3]}:t>  Nova" in post12.content)
+    check("edit 12: user 700's pick survived the edit (same ts)",
+          700 in [int(x) for x in rec12b["assignments"].get("1", [])],
+          str(rec12b["assignments"]))
+
+    # Old-style event (no notes/extras stored): renders byte-identical —
+    # title line directly followed by the doors bullet, no stray blank lines.
+    plain = signup_ui._render_rec(signup_store.get_event(msg_id))
+    check("old-style event: title then doors, no injected blanks",
+          plain.startswith("# Edited Title\n- Doors Open:"), repr(plain[:80]))
+
     print(f"\n{'=' * 48}")
     print(f"  {PASS} passed, {FAIL} failed")
     print(f"{'=' * 48}")

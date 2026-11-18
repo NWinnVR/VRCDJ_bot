@@ -19,9 +19,13 @@ WHAT IT DOES
 Fuzzy, forgiving inputs (the whole point — no one wants to compute unix):
   * start time : "10pm ET" · "10 PM EST" · "10:30pm CT" · "22:00" ·
                  "noon" · "1789178400" (unix) · "<t:1789178400:t>"
+                 — OR a whole natural sentence, day included, in any order:
+                 "10 PM est, friday" · "Saturday the 12th 11pm EST" ·
+                 "the 12th 9pm" · "tuesday 9pm" · "october 5th 8pm"
   * day        : "friday" · "mon" · "June 5th" · "june 5, 2026" ·
                  "2026-09-10" · "the 5th"   (a bare weekday = the closest
                  UPCOMING occurrence of that day, counting from today)
+                 — optional when start_time already names a day
   * slot count : "6" · "twelve"
   * slot dur.  : "1 hour" (default) · "2 hour" · "1.5 hours" · "90 min"
   * doors lead : "15" (default, minutes before slot 1) · "30 min" · "1 hour"
@@ -67,8 +71,10 @@ PURE + TESTABLE
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone as _utc
-from typing import Optional
+import time as _time_mod
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import List, Optional
 
 try:
     from zoneinfo import ZoneInfo
@@ -79,6 +85,8 @@ import djlineup  # reuse the A–Z letter emote engine (/djlineup)
 
 __all__ = [
     "build", "parse_start_time", "parse_day", "parse_duration",
+    "parse_when", "start_has_date",
+    "resolve_candidates", "WhenCandidate", "slot_block",
     "slots", "door_line", "letter_enabled", "start_is_instant",
     "DEFAULT_SLOT_SECONDS",
     "DEFAULT_DOORS_SECONDS",
@@ -117,6 +125,14 @@ _TZ_RE = re.compile(
 _NOON = re.compile(r"\bnoon\b", re.I)
 _MIDNIGHT = re.compile(r"\bmidnight\b", re.I)
 _HOUR_RE = re.compile(r"\b(\d{1,2})(?::(\d{1,2}))?\s*(am|pm)?", re.I)
+# "at"/"@" pins the following number as THE clock time ("friday at 22").
+_AT_PREFIX = re.compile(
+    r"\b(?:at|@)\s+(\d{1,2})(?::(\d{1,2}))?(am|pm)?\b", re.I)
+# Morning/evening hint words settle a bare hour ("saturday evening 10" -> PM).
+_HINT_AM = re.compile(r"\bmorning\b", re.I)
+_HINT_PM = re.compile(r"\b(evening|night|tonight)\b", re.I)
+# Relative day words: "today"/"tonight" (this date), "tomorrow" & friends.
+_RE_REL = re.compile(r"\b(today|tonight|tomorrow|tmrw?|to-morrow)\b", re.I)
 
 
 def _parse_hour(text: str) -> Optional[tuple[int, int]]:
@@ -149,16 +165,23 @@ def _parse_hour(text: str) -> Optional[tuple[int, int]]:
 
 
 def parse_start_time(text: str, ref: Optional[date] = None) -> int:
+
+
     """Parse a start-time spec into a UNIX timestamp.
 
     Accepts:
       * a Unix timestamp:  "1789178400"  or  "<t:1789178400:t>"
       * a time-of-day + zone:  "10pm ET" · "10:30 PM EST" · "22:00" ·
         "noon ET" · "10 pm CT"
-        -> a time-of-day needs a date to become a real instant.  `ref`
-           (the day being planned) supplies it; without `ref` it defaults
-           to TODAY, which is almost never what a staff member wants — so
-           callers pass the already-parsed day.
+      * a natural-language time+day:  "10 PM est, friday" ·
+        "Saturday the 12th 11pm EST" · "the 12th 9pm" · "tuesday 9pm"
+        (the day is taken FROM the string itself, with the defaults in
+        `parse_when` — current month / nearest upcoming weekday)
+
+    A time-of-day still needs a date: if the string carries its own day it
+    is used; otherwise `ref` (the day being planned) supplies it.  `ref`
+    defaults to TODAY, which is almost never what a staff member wants —
+    callers should pass the already-parsed day when they have one.
 
     Raises ValueError with a friendly message when it can't parse.
     """
@@ -167,20 +190,16 @@ def parse_start_time(text: str, ref: Optional[date] = None) -> int:
         raise ValueError("No start time given.")
 
     # 1) Already a Unix timestamp (bare, or wrapped in a ham-time token).
-    t = raw
-    m = re.search(r"<t:(\d{8,12}):[tTfF]\s*>", t)
+    m = re.search(r"<t:(\d{8,12}):[tTfF]\s*>", raw)
     if m:
         return int(m.group(1))
-    if re.fullmatch(r"\d{8,12}", t):
-        return int(t)
+    if re.fullmatch(r"\d{8,12}", raw):
+        return int(raw)
 
-    # 2) Time-of-day + optional zone.
-    hour = _parse_hour(raw)
-    if hour is None:
-        raise ValueError(
-            f"I couldn't read that as a time.  Try “10pm ET”, “10:30 pm CT”, "
-            f"“22:00”, “noon”, or a Unix timestamp like 1789178400.")
-    h, minute = hour
+    # 2) Natural language: the string may carry its own day+time,
+    #    ("Saturday the 12th 11pm EST") or just a time-of-day ("10pm ET"
+    #    -> resolved against `ref`).  `parse_when` handles both orders.
+    d, (h, minute) = parse_when(raw, ref=ref)
 
     zone = "America/New_York"
     tz_match = _TZ_RE.search(raw)
@@ -189,7 +208,6 @@ def parse_start_time(text: str, ref: Optional[date] = None) -> int:
     if ZoneInfo is None:
         raise ValueError("Timezone data is unavailable on this system.")
 
-    d = ref or date.today()
     try:
         dt = datetime(d.year, d.month, d.day, h, minute, tzinfo=ZoneInfo(zone))
     except Exception as exc:
@@ -252,6 +270,469 @@ _YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 _WEEKDAY_TOKEN = re.compile(r"\b(monday|mon|tuesday|tue|tues|wednesday|wed|"
                             r"thursday|thu|thur|thurs|friday|fri|saturday|sat|"
                             r"sunday|sun)\b", re.I)
+# ---------------------------------------------------------------------------
+# Natural-language start-time resolver  (added 2026-10-04)
+#
+# The start_time field can carry BOTH the time and the day in one free-form
+# string — "10 PM est, friday", "Saturday the 12th 11pm EST", "tuesday 9pm",
+# "the 12th 9pm" — just like a person would say it.  `parse_when` is the
+# single entry point: it extracts the date and the time-of-day from ANY
+# order and returns (date, (hour, minute)).  `parse_start_time` delegates
+# to it, so both /timeslots and /signup get the upgrade for free.
+#
+# Default rules (Nadia's spec):
+#   * no month given  -> assume the current month ("the 12th" = 12th of
+#     this month; if that has already passed, the 12th of next month)
+#   * bare weekday    -> the next closest occurrence ("tuesday" = next Tue)
+#   * "next <weekday>"-> the one AFTER the next closest
+#   * weekday + Nth   -> the nearest Nth that actually IS that weekday
+#   * month + Nth     -> that month-day this year (next year if already past)
+# ---------------------------------------------------------------------------
+
+# Weekday alternatives — long names FIRST so "saturday" is never matched as
+# "sat" + junk, and "mon" never eats "monday".
+_WD = (r"monday|mon|tuesday|tue|tues|wednesday|wed|thursday|thu|thur|thurs|"
+       r"friday|fri|saturday|sat|sunday|sun")
+_MONTH_ALT = (r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|"
+              r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
+              r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?")
+_NTH = r"(?:st|nd|rd|th)?"
+_NOT_DAY = r"(?!\s*\d{1,2}(?:st|nd|rd|th)\b)"
+
+_RE_ISO = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
+_RE_MD = re.compile(
+    r"\b(" + _MONTH_ALT + r")\s+(?:the\s+)?(\d{1,2})" + _NTH +
+    r"\b(,\s*(\d{4}))?" + _NOT_DAY, re.I)
+_RE_DM = re.compile(
+    r"\b(?:the\s+)?(\d{1,2})" + _NTH + r"\s+(?:of\s+)?(" + _MONTH_ALT +
+    r")\b(,\s*(\d{4}))?", re.I)
+_RE_WD_NTH = re.compile(
+    # (?!:) — "saturday 22:00" is a TIME, not "Saturday the 22nd": never let a
+    # weekday+number match when a colon (clock time) follows the number.
+    r"\b(" + _WD + r")\b\s+(?:the\s+)?(\d{1,2})" + _NTH +
+    r"\b(?!:)" + _NOT_DAY, re.I)
+_RE_WD = re.compile(r"\b(" + _WD + r")\b", re.I)
+_RE_MONTH = re.compile(r"\b(" + _MONTH_ALT + r")\b", re.I)
+_RE_BARE_NTH = re.compile(
+    r"\b(?:the\s+\d{1,2}" + _NTH + r"|\d{1,2}(?:st|nd|rd|th)\b)" + _NOT_DAY,
+    re.I)
+_RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
+_RE_NEXT = re.compile(r"\bnext\b", re.I)
+
+
+def _month_num(name: str) -> int:
+    key = (name or "").lower()
+    if key in ("sept", "septm"):
+        key = "september"
+    if key not in _MONTH:
+        raise ValueError(f"I don't know the month {name!r}.  Try “october” or “oct”.")
+    return _MONTH[key]
+
+
+def _roll_forward(d: date, ref: date) -> date:
+    """If `d` is already in the past, move it forward: same day next month,
+    else the 28th next month, else same day next year.  (Events are future.)"""
+    if d >= ref:
+        return d
+    try:
+        nd = d.replace(month=d.month % 12 + 1)
+    except ValueError:
+        nd = d.replace(day=28, month=d.month % 12 + 1)
+    if nd >= ref:
+        return nd
+    try:
+        return d.replace(year=d.year + 1)
+    except ValueError:
+        return d.replace(year=d.year + 1, day=28)
+
+
+def _nearest_weekday_day(ref: date, weekday: int, dnum: int) -> date:
+    """Nearest date >= ref that is BOTH the given weekday and that day-of-month.
+    Searches up to 15 months ahead (a weekday+day combo always recurs within)."""
+    for offset in range(15):
+        m = ref.month - 1 + offset
+        y = ref.year + m // 12
+        mo = m % 12 + 1
+        try:
+            d = date(y, mo, dnum)
+        except ValueError:
+            continue
+        if d >= ref and d.weekday() == weekday:
+            return d
+    raise ValueError("I couldn't land that weekday + day combination — try again.")
+
+
+def _extract_time_info(text: str) -> Optional[dict]:
+    """Robustly extract the time-of-day from a mixed "when" string.
+
+    Returns {"h": 0..23, "minute": 0..59, "certain": bool}.  `certain` is
+    False ONLY when the hour was given bare (1-12, no am/pm, no hint word) —
+    i.e. both AM and PM are possible readings and the caller should ASK.
+
+    Ranks every numeric candidate so the REAL time wins over day numbers:
+    priority 0 = has am/pm ("11pm"), 1 = a colon 24h time ("22:00") or an
+    hour pinned by "at"/"@" (there is no such thing as 14am), 2 = a bare
+    1-12 number.  Date tokens are masked first, so the "12th" in
+    "Saturday the 12th 9pm" can never be read as a clock hour — which also
+    fixes the old silent corruption of inputs like "the 12th 9".
+
+    Hint words settle an ambiguous bare hour: morning -> AM,
+    evening/night/tonight -> PM.  Returns None when no valid time exists.
+    """
+    if _MIDNIGHT.search(text):
+        return {"h": 0, "minute": 0, "certain": True}
+    if _NOON.search(text):
+        return {"h": 12, "minute": 0, "certain": True}
+
+    hint_am = bool(_HINT_AM.search(text))
+    hint_pm = bool(_HINT_PM.search(text))
+
+    # Mask date-token spans (same length!) so their numbers are not hours.
+    masked = text
+    for rx in (_RE_ISO, _RE_WD_NTH, _RE_MD, _RE_DM, _RE_BARE_NTH):
+        for m in rx.finditer(masked):
+            masked = masked[:m.start()] + " " * (m.end() - m.start()) + masked[m.end():]
+
+    at_spans = [m.span(1) for m in _AT_PREFIX.finditer(text)]
+
+    def _at(pos: int) -> bool:
+        return any(s <= pos < e for s, e in at_spans)
+
+    candidates = []  # (pri, h24, minute, kind): kind is "exact" or "bare"
+    for m in _HOUR_RE.finditer(masked):
+        h = int(m.group(1))
+        minute = int(m.group(2)) if m.group(2) else 0
+        mer = (m.group(3) or "").lower()
+        if minute > 59:
+            continue
+        if mer:
+            if h not in range(1, 13):
+                continue
+            h24 = 0 if (h == 12 and mer == "am") else ((h + 12) % 24 if mer == "pm" else h)
+            candidates.append((0, h24, minute, "exact"))
+        elif m.group(2):                    # colon time ("22:00") -> certain
+            if h <= 23:
+                candidates.append((1, h % 24, minute, "exact"))
+        elif h >= 13:                       # there is no such thing as 14am — a bare
+            candidates.append((1, h % 24, minute, "exact"))   # number >12 can only be 24h
+        elif h <= 12:                       # bare number -> AM/PM unknown (maybe)
+            candidates.append((2, h, minute, "bare"))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: (c[0], -c[2]))
+    _, h, minute, kind = candidates[0]
+    if kind != "bare":
+        return {"h": h, "minute": minute, "certain": True}
+    # Bare hour: hint words decide; with no hint it stays AM/PM-ambiguous.
+    if hint_pm and not hint_am:
+        h = 12 if h == 12 else (h % 12) + 12
+        return {"h": h, "minute": minute, "certain": True}
+    if hint_am and not hint_pm:
+        h = 0 if h == 12 else h % 12
+        return {"h": h, "minute": minute, "certain": True}
+    return {"h": h, "minute": minute, "certain": False}
+
+
+def _extract_hour(text: str) -> Optional[tuple[int, int]]:
+    """(hour, minute) for deterministic silent parsing — the legacy contract.
+
+    Thin wrapper over `_extract_time_info`: an AM/PM-ambiguous bare hour keeps
+    its historical default (the number as typed = morning), so existing one-shot
+    parses never change.  The ambiguity itself is surfaced separately by
+    `resolve_candidates` (the /timeslots clarifying question)."""
+    info = _extract_time_info(text)
+    if info is None:
+        return None
+    return (info["h"], info["minute"])
+
+def _nearest_weekday(ref: date, weekday: int, *, skip_today: bool = False) -> date:
+    """Nearest date at/after `ref` (strictly after if `skip_today`) that is the
+    given weekday (0=Mon..6=Sun)."""
+    delta = (weekday - ref.weekday()) % 7
+    if delta == 0 and skip_today:
+        delta = 7
+    return date.fromordinal(ref.toordinal() + delta)
+
+
+def _resolve_date_tokens(raw: str, ref: date, next_flag: bool) -> Optional[date]:
+    """Find the date hidden anywhere in a free-form "when" string.
+
+    Returns None when the string carries NO date (a bare time-of-day like
+    "10pm ET") — in that case the caller supplies one from the `day` field or
+    today.  Recognition order: ISO > weekday+Nth ("saturday the 12th") >
+    month/day ("october 5th", "5th of october") > relative day word (today /
+    tonight = ref, tomorrow & friends = ref+1) > bare weekday ("friday",
+    "next tuesday" — always at/after ref, so a past time today yields an honest
+    error instead of silently jumping a week) > bare month ("october") > bare
+    ordinal ("the 12th" → current month, rolled forward if past).
+
+    Raises ValueError with a friendly message when the tokens can't form a real
+    date.
+    """
+    # 1) Full ISO date wins outright.
+    iso = _RE_ISO.search(raw)
+    if iso:
+        try:
+            return date(int(iso.group(1)), int(iso.group(2)), int(iso.group(3)))
+        except ValueError:
+            raise ValueError(f"That's not a real date: {raw!r}")
+
+    # 2) Weekday + day-of-month  ("saturday the 12th")
+    wdn = _RE_WD_NTH.search(raw)
+    if wdn:
+        wd = _WEEKDAY[wdn.group(1).lower()]
+        dnum = int(wdn.group(2))
+        if not (1 <= dnum <= 31):
+            raise ValueError(f"That's not a real day: {raw!r}")
+        return _nearest_weekday_day(ref, wd, dnum)
+
+    # 3) Month + day  ("october 5th", "5th of october", "june 5, 2026")
+    md = _RE_MD.search(raw) or _RE_DM.search(raw)
+    if md:
+        if md.re is _RE_MD:
+            month, dnum, ytxt = _month_num(md.group(1)), int(md.group(2)), md.group(3)
+        else:
+            dnum, month, ytxt = int(md.group(1)), _month_num(md.group(2)), md.group(3)
+        if not (1 <= dnum <= 31):
+            raise ValueError(f"That's not a real day: {raw!r}")
+        year = int(ytxt) if ytxt else ref.year
+        try:
+            d = date(year, month, dnum)
+        except ValueError:
+            raise ValueError(f"That's not a real date: {raw!r}")
+        return d if ytxt else _roll_forward(d, ref)
+
+    # 3b) Relative day words  ("today", "tonight" = ref; tomorrow / tmrw = +1)
+    rel = _RE_REL.search(raw)
+    if rel:
+        word = rel.group(1).lower()
+        if word in ("tomorrow", "tmr", "tmrw", "to-morrow"):
+            return date.fromordinal(ref.toordinal() + 1)
+        return ref
+
+    # 4) Bare weekday  ("friday", "next tuesday") — at/after `ref` (this week's
+    #    Friday when earlier in the week, next week's if it already passed).
+    w = _RE_WD.search(raw)
+    if w:
+        wd = _WEEKDAY[w.group(1).lower()]
+        d = _nearest_weekday(ref, wd)
+        if next_flag:
+            d = date.fromordinal(d.toordinal() + 7)
+        return d
+
+    # 5) Bare month  ("october") -> 1st of that month (next year if past)
+    mo = _RE_MONTH.search(raw)
+    if mo:
+        d = date(ref.year, _month_num(mo.group(1)), 1)
+        return _roll_forward(d, ref)
+
+    # 6) Bare ordinal  ("the 12th") -> 12th of the current month, else next month
+    bn = _RE_BARE_NTH.search(raw)
+    if bn:
+        dnum = int(re.search(r"\d{1,2}", bn.group(0)).group(0))
+        if not (1 <= dnum <= 31):
+            raise ValueError(f"That's not a real day: {raw!r}")
+        return _roll_forward(date(ref.year, ref.month, dnum), ref)
+
+    # No date in the string.
+    return None
+
+
+def parse_when(text: str, ref: Optional[date] = None) -> tuple[date, tuple[int, int]]:
+    """Parse a free-form "when" string into (date, (hour, minute)).
+
+    The day and the time can appear in ANY order:
+      "10 PM est, friday"            -> nearest Friday, 22:00
+      "Saturday the 12th 11pm EST"   -> nearest Saturday that is a 12th, 23:00
+      "tuesday 9pm"                  -> next Tuesday, 21:00
+      "the 12th 9pm"                 -> 12th of this month, 21:00
+      "october 5th 8pm"              -> Oct 5 (this year, or next if past), 08:00
+      "2026-11-01 9am"               -> Nov 1 2026, 09:00
+
+    Defaults (Nadia's spec): no month -> current month; bare weekday -> the
+    next closest one; "next <weekday>" -> the one after that.
+
+    Raises ValueError when no time (or no sensible date) can be found.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        raise ValueError("No start time given.")
+    ref = ref or date.today()
+    next_flag = bool(_RE_NEXT.search(raw))
+
+    hour = _extract_hour(raw)
+    if hour is None:
+        raise ValueError(
+            f"I couldn't read a time in {raw!r}.  Try “10pm ET” or “22:00”.")
+
+    # The date may be anywhere in the string (or nowhere — then `ref` wins).
+    d = _resolve_date_tokens(raw, ref=ref, next_flag=next_flag)
+    if d is None:
+        d = ref
+    return d, hour
+
+
+
+def start_has_date(text: str) -> bool:
+    """True if `text` carries recognisable date info (weekday, month, ordinal,
+    ISO date, or a 4-digit year) — meaning the separate "day" field is
+    optional and start_time supplies its own date.  A bare time like "10pm ET"
+    is False; a full timestamp ("<t:…:t>" / bare unix) is True."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if re.search(r"<t:\d{8,12}:t\s*>", raw, re.I) or re.fullmatch(r"\d{8,12}", raw):
+        return True
+    return bool(_RE_WD.search(raw) or _RE_MONTH.search(raw)
+                or _RE_BARE_NTH.search(raw) or _RE_ISO.search(raw)
+                or _RE_REL.search(raw) or _RE_YEAR.search(raw))
+
+
+@dataclass(frozen=True)
+class WhenCandidate:
+    """One concrete "when" the bot is asking about.
+
+    `ts`     — the fully-resolved UNIX timestamp (date + time-of-day).
+    `label`  — a short human label for a Discord button ("Fri Oct 23 ·
+               9:00 PM ET"), kept under Discord's 32-char button limit by
+               construction in `_when_label`.
+    """
+    ts: int
+    label: str
+
+
+def _zone_from_raw(raw: str) -> str:
+    """The IANA zone named in `raw` (ET/EST/CT/… / BST …), default ET."""
+    m = _TZ_RE.search(raw or "")
+    return _TZ_MAP.get(m.group(0).lower(), "America/New_York") if m else "America/New_York"
+
+
+def _when_label(d: date, h: int, minute: int, zone: str) -> str:
+    """A ≤32-char button label for a candidate moment, e.g. “Fri Sep 11 ·
+    10:00 PM ET”.
+
+    Built without %e/%-I-style strftime flags (Windows' C library leaves them
+    as literal junk): weekday/month abbreviations are standard %-a/%-b-free —
+    just %a and %b, the day number is plain text, and the hour is converted to
+    12-hour form by hand.  The zone comes from a real DST-aware datetime so
+    ET in September correctly renders as EDT."""
+    if ZoneInfo is None:
+        raise ValueError("Timezone data is unavailable on this system.")
+    dt = datetime(d.year, d.month, d.day, h, minute, tzinfo=ZoneInfo(zone))
+    zname = dt.strftime("%Z")                    # EDT / EST / BST — portable %Z
+    ampm = "PM" if 12 <= h <= 23 else "AM"
+    h12 = (h % 12) or 12
+    label = f"{d.strftime('%a')} {d.strftime('%b')} {d.day} · {h12}:{minute:02d} {ampm} {zname}"
+    # Discord caps button labels at 32 chars.  The date part is exactly the
+    # information this question is about, so it's kept whole; only the tail may
+    # give (worst case: "Fri Sep 12 · 9:00 AM EST" → drops the zone name).
+    if len(label) > 32:
+        label = label[:32].rstrip()
+    return label
+
+
+def _hour_variants(info: dict, d: date, zone: str) -> List[WhenCandidate]:
+    """The candidate instant(s) for a time-of-day on date `d`.
+
+    A certain hour yields exactly one; an AM/PM-ambiguous bare hour (e.g.
+    "the 12th 9") yields both readings — the ambiguous pair IS the question."""
+    if info["certain"]:
+        return [WhenCandidate(
+            int(datetime(d.year, d.month, d.day, info["h"], info["minute"],
+                         tzinfo=ZoneInfo(zone)).timestamp()),
+            _when_label(d, info["h"], info["minute"], zone))]
+    h_am = 0 if info["h"] == 12 else info["h"] % 12
+    h_pm = 12 if info["h"] == 12 else (info["h"] % 12) + 12
+    return [WhenCandidate(
+        int(datetime(d.year, d.month, d.day, hh, info["minute"],
+                     tzinfo=ZoneInfo(zone)).timestamp()),
+        _when_label(d, hh, info["minute"], zone)) for hh in (h_am, h_pm)]
+
+
+def resolve_candidates(start_time: str,
+                       day: Optional[str] = None,
+                       ref: Optional[date] = None,
+                       now: Optional[float] = None) -> tuple[str, List[WhenCandidate]]:
+    """Decide what a free-form start-time string means — and whether it needs
+    a clarifying question.
+
+    Returns (kind, candidates):
+      kind "ok"     — unambiguous; exactly one candidate.  Callers may just use
+                      it (or keep using `build()`, which is equivalent).
+      kind "am_pm"  — the DATE is known but AM/PM isn't ("the 12th 9"); two
+                      candidates, ask which.
+      kind "date"   — no date at all and today's reading has already passed /
+                      none fits; up to three candidates (Thu/Fri/Sat style),
+                      ask which day.
+
+    Past instants are dropped from the candidate list entirely; when EVERY
+    reading is in the past, ValueError is raised with a friendly message (the
+    honest "that time has already passed" error — never a silent jump).
+
+    `ref` is today's date for relative words / bare weekdays; `day` (the
+    separate slash field) supplies the date when start_time has none.  Pass
+    fixed values in tests for determinism."""
+    if ZoneInfo is None:
+        raise ValueError("Timezone data is unavailable on this system.")
+    raw = (start_time or "").strip()
+    if not raw:
+        raise ValueError("No start time given.")
+    ref = ref or date.today()
+    now = float(now if now is not None else _time_mod.time())
+    zone = _zone_from_raw(raw)
+
+    # A full timestamp already knows its exact moment.
+    if start_is_instant(raw):
+        ts = parse_start_time(raw)
+        dti = datetime.fromtimestamp(ts, ZoneInfo(zone))
+        return "ok", [WhenCandidate(ts, _when_label(dti.date(), dti.hour, dti.minute, zone))]
+
+    info = _extract_time_info(raw)
+    if info is None:
+        raise ValueError(
+            f"I couldn't read a time in {raw!r}.  Try “10pm ET” or “22:00”.")
+
+    d = _resolve_date_tokens(raw, ref=ref, next_flag=bool(_RE_NEXT.search(raw)))
+    source = "tokens"                          # the string names its own day…
+    if d is None and (day or "").strip():      # …or the separate field does…
+        d, source = parse_day(day, ref=ref), "day_field"
+    if d is None:                              # …and otherwise it's just today.
+        d, source = ref, "default"
+
+    cands = _hour_variants(info, d, zone)
+    future = [c for c in cands if c.ts > now]
+
+    if not future and source == "default":
+        # Every reading is in the past → try the next up to three days with
+        # the same time-of-day; a "9am" said at 6pm today becomes Thu/Fri/Sat.
+        cands, day_d = [], d
+        for _ in range(3):
+            day_d = date.fromordinal(day_d.toordinal() + 1)
+            cand = WhenCandidate(
+                int(datetime(day_d.year, day_d.month, day_d.day, info["h"],
+                             info["minute"], tzinfo=ZoneInfo(zone)).timestamp()),
+                _when_label(day_d, info["h"], info["minute"], zone))
+            cands.append(cand)
+        future = [c for c in cands if c.ts > now] or cands
+
+    if not future:
+        raise ValueError("That time has already passed — try a later one.")
+
+    # Pick the question kind.  Exactly ONE surviving reading needs no
+    # question at all (a bare hour whose AM side already passed must mean PM).
+    if len(future) == 1:
+        return "ok", future
+    if (not info["certain"]) and len(cands) == 2:
+        return "am_pm", future          # both readings alive, one known date
+    return "date", future               # several days in play
+
+
+def question_text(kind: str, n_cands: int) -> str:
+    """The clarifying-question line shown above the answer buttons."""
+    if kind == "am_pm":
+        return ("I've got the date — which time did you mean?  Tap one:")
+    # kind == "date"
+    return ("I'm not sure which day you meant — pick the right one:")
 
 
 def parse_day(text: str, ref: Optional[date] = None) -> date:
@@ -321,8 +802,8 @@ def parse_day(text: str, ref: Optional[date] = None) -> date:
         return _closest_upcoming_weekday(ref, _WEEKDAY[key])
 
     raise ValueError(
-        f"I couldn't read that as a day.  Try “friday”, “June 5th”, or "
-        f"“2026-09-10”.")
+        "I couldn't read that as a day.  Try “friday”, “June 5th”, or "
+        "“2026-09-10”.")
 
 
 def parse_duration(text: str) -> int:
@@ -350,8 +831,8 @@ def parse_duration(text: str) -> int:
         num = re.search(r"(\d+(?:\.\d+)?)", low)
         if not num:
             raise ValueError(
-                f"I couldn't read that as a length.  Try “1 hour”, “1.5 hours”, "
-                f"or “90 min”.")
+                "I couldn't read that as a length.  Try “1 hour”, “1.5 hours”, "
+                "or “90 min”.")
         return int(round(float(num.group(1)) * 60))
     seconds = int(round((hours * 60 + minutes) * 60))
     if seconds <= 0:
@@ -365,8 +846,6 @@ def letter_enabled(text: str) -> bool:
     if not low:
         return False
     return low in {"yes", "y", "yep", "yeah", "sure", "true", "1", "on", "please"}
-
-
 def door_line(ts: int) -> str:
     """The doors-open line:  __<t:TS:F>__ (<t:TS:R>)"""
     return f"__<t:{ts}:F>__ (<t:{ts}:R>)"
@@ -393,10 +872,11 @@ def build(start_time: str,
     Args:
       start_time    : "10pm ET" / "22:00" / "1789178400" / "<t:…:t>"
       slot_count    : "6" / "twelve"
-      day           : "friday" / "June 5th" / "2026-09-10"  — REQUIRED for a
-                      time-of-day, but OPTIONAL when `start_time` is already a
-                      full timestamp (bare unix or `<t:…:t>`), because that
-                      input encodes its own date and the day field is ignored.
+      day           : "friday" / "June 5th" / "2026-09-10"  — OPTIONAL when
+                      `start_time` carries its own date (a natural-language
+                      string like "10 PM est, friday" or a full timestamp like
+                      1789178400); otherwise it is the day a bare time-of-day
+                      ("10pm ET") is resolved against.
       doors_lead    : minutes (or "30 min" / "1 hour") before slot 1,
                       default "15".  Pass "" / None to omit the doors line.
       add_letters   : "yes" to prepend A–Z letter emotes (else omitted).
@@ -415,13 +895,16 @@ def build(start_time: str,
         start_ts = parse_start_time(start_time)
         d = date.fromtimestamp(start_ts)  # only used for any derived date logic
     else:
-        # Time-of-day: needs a day to become a real instant.
-        if not day_text:
-            raise ValueError(
-                "That start time is a time-of-day (e.g. “10pm ET”) — I also need "
-                "the DAY.  Give me “friday”, “June 5th”, or “2026-09-10”.  "
-                "(Or pass a full timestamp like 1789178400, which has its own date.)")
-        d = parse_day(day_text, ref=ref)
+        # Natural-language start_time may carry its OWN day
+        # ("10 PM est, friday", "Saturday the 12th 11pm EST") — use that.
+        # Otherwise fall back to the separate `day` field; if there's no
+        # day at all, the time-of-day resolves against `ref` (today).
+        if start_has_date(start_time):
+            d = parse_when(start_time, ref=ref)[0]
+        elif day_text:
+            d = parse_day(day_text, ref=ref)
+        else:
+            d = ref or date.today()
 
     # Slot count.
     n_text = (slot_count or "").strip()
@@ -451,12 +934,25 @@ def build(start_time: str,
         doors_seconds = parse_duration(doors_text)
 
     start_ts = parse_start_time(start_time, ref=d)
-    ts_list = slots(start_ts, n, step)
+    return slot_block(start_ts, n, step, doors_seconds=doors_seconds,
+                      letters=letter_enabled(add_letters))
 
+
+def slot_block(start_ts: int,
+               n: int,
+               step_seconds: int,
+               doors_seconds: int = 0,
+               letters: bool = False) -> str:
+    """Render the reply block for an ALREADY-RESOLVED start timestamp.
+
+    Optional doors-open line (doors lead before slot 1), then one `<t:…:t>` per
+    slot `step_seconds` apart, each optionally prefixed with its A–Z letter
+    emote.  This is build()'s tail — the /timeslots clarifying buttons render
+    each answer candidate through here without re-parsing anything."""
+    ts_list = slots(start_ts, n, step_seconds)
     lines = []
     if doors_seconds > 0:
         lines.append(door_line(start_ts - doors_seconds))
-    letters = letter_enabled(add_letters)
     for i, ts in enumerate(ts_list):
         tok = f"<t:{ts}:t>"
         lines.append(f"{djlineup.letter_for_index(i)} {tok}" if letters else tok)
@@ -598,7 +1094,6 @@ def _self_test() -> int:
     # 11) UK timezones (for Hyndal): BST is DST-aware like the US zones.
     print("=== 11. BST / GMT (Europe/London) ===")
     from zoneinfo import ZoneInfo as _ZI
-    lon = _ZI("Europe/London")
     utc = _ZI("UTC")
     # DST-awareness, compared against UTC on EACH date (not to each other —
     # different dates differ by months, not a DST hour).
@@ -636,17 +1131,127 @@ def _self_test() -> int:
     lines_ts = out_ts.splitlines()
     check("unix ts, no day -> 7 lines (doors + 6)", len(lines_ts) == 7, out_ts)
     check("unix ts, no day -> slot 1 is golden",
+
+
           lines_ts[1] == f"<t:{GOLDEN}:t>", lines_ts[1])
     # Ham-time token, NO day -> works too.
     out_tok = build("<t:1789178400:t>", "3", doors_lead="")
     check("<t:…:t> token, no day -> 3 slots", len(out_tok.splitlines()) == 3, out_tok)
-    # Time-of-day with NO day -> friendly error (needs a day to become an instant).
+    # Time-of-day with NO day -> resolves against TODAY (the day field is
+    # optional; a bare time means "today at that time").
+    import time as _time
+    out_today = build("10pm ET", "3", doors_lead="")  # no doors line -> slot 1 is line 1
+    today = date.fromtimestamp(int(_time.time()))
+    from zoneinfo import ZoneInfo as _ZI
+    want_today = int(datetime(today.year, today.month, today.day, 22, 0,
+                              tzinfo=_ZI("America/New_York")).timestamp())
+    check("time-of-day with no day -> today 22:00",
+          out_today.splitlines()[0] == "<t:" + str(want_today) + ":t>",
+          out_today.splitlines()[0], "<t:" + str(want_today) + ":t>")
+
+    # 13) Natural-language start_time: day + time in ONE free-form string.
+    #     ref = Wed 2026-09-09.  Expected values computed with zoneinfo.
+    print("=== 13. natural-language start_time (day + time in one string) ===")
+    NL = [
+        ("10 PM est, friday",          1789178400),  # nearest Fri (9/11) 22:00
+        ("10 PM est, fri",             1789178400),  # abbrev weekday
+        ("Saturday the 12th 11pm EST", 1789268400),  # nearest Sat-12th (2026-09-12) 23:00
+        ("the 12th 9pm",               1789261200),  # 12th this month (9/12) 21:00
+        ("tuesday 9pm",                1789520400),  # next Tuesday (9/15) 21:00
+        ("next tuesday 10pm",          1790128800),  # the Tuesday AFTER (9/22) 22:00
+        ("october 5th 8pm",            1791244800),  # month + day (10/5) 20:00
+        ("2026-11-01 9am",             1793541600),  # ISO date 09:00
+        ("10pm ET",                    1789005600),  # no date -> ref (today) 22:00
+    ]
+    for s, want in NL:
+        check(f"parse_start_time({s!r})",
+              parse_start_time(s, ref=ref) == want,
+              parse_start_time(s, ref=ref), want)
+    # build() with the day INSIDE start_time — no separate day field needed.
+    out_nl = build("Saturday the 12th 11pm EST", "4", doors_lead="15", ref=ref)
+    lines_nl = out_nl.splitlines()
+    check("NL build: 5 lines (doors + 4)", len(lines_nl) == 5, out_nl)
+    check("NL build: slot 1 = Sat 2026-09-12 23:00",
+          lines_nl[1] == "<t:1789268400:t>", lines_nl[1])
+    check("NL build: slots step by 3600",
+          all(lines_nl[1 + k] == "<t:" + str(1789268400 + k * 3600) + ":t>" for k in range(4)),
+          out_nl)
+    # 14) _extract_time_info — the v1.7.0 fixes + ambiguity flag.
+    print("=== 14. time extraction: at-pin, hints, day-number masking ===")
+    ti = lambda s: _extract_time_info(s)
+    check("'friday at 22' -> 22:00 (old code crashed)",
+          ti("friday at 22") == {"h": 22, "minute": 0, "certain": True}, ti("friday at 22"))
+    check("'the 12th 9pm' -> 21:00 certain",
+          ti("Saturday the 12th 9pm EST") == {"h": 21, "minute": 0, "certain": True},
+          ti("Saturday the 12th 9pm EST"))
+    check("'the 12th 9' -> 9:xx AM/PM ambiguous (old code silently 12:00)",
+          ti("the 12th 9") == {"h": 9, "minute": 0, "certain": False}, ti("the 12th 9"))
+    check("'saturday evening 10' -> PM via hint",
+          ti("saturday evening 10") == {"h": 22, "minute": 0, "certain": True},
+          ti("saturday evening 10"))
+    check("'tuesday morning 8' -> AM via hint",
+          ti("tuesday morning 8") == {"h": 8, "minute": 0, "certain": True},
+          ti("tuesday morning 8"))
+    check("'friday at 9am' -> 9:00 (at-pin + meridiem)",
+          ti("friday at 9am") == {"h": 9, "minute": 0, "certain": True}, ti("friday at 9am"))
+    check("'22:00' colon time stays certain",
+          ti("saturday 22:00") == {"h": 22, "minute": 0, "certain": True}, ti("saturday 22:00"))
+
+    # 15) Relative day words + past-filter in resolve_candidates.
+    print("=== 15. relative days & the clarifying question API ===")
+    now = datetime(2026, 9, 9, 18, 0, tzinfo=ZoneInfo("America/New_York")).timestamp()
+    ref = date(2026, 9, 9)
+    k, cs = resolve_candidates("tonight at 9pm", ref=ref, now=now)
+    check("'tonight at 9pm' -> ok, Wed 17:00 is past so… future?  (18:00 > 21:00?) NO — 21:00 today IS future of 18:00",
+          k == "ok" and len(cs) == 1, (k, cs))
+    _NY = ZoneInfo("America/New_York")
+    check("tonight ts = Wed Sep 9 21:00 ET",
+          datetime.fromtimestamp(cs[0].ts, _NY) ==
+          datetime(2026, 9, 9, 21, 0, tzinfo=_NY),
+          datetime.fromtimestamp(cs[0].ts, _NY))
+    k2, c2 = resolve_candidates("tomorrow at 8am", ref=ref, now=now)
+    check("'tomorrow at 8am' -> ok, Thu Sep 10 08:00 ET",
+          k2 == "ok" and datetime.fromtimestamp(c2[0].ts, _NY) ==
+          datetime(2026, 9, 10, 8, 0, tzinfo=_NY), (k2, c2))
+
+    # 16) The three question kinds + slot_block parity with build().
+    print("=== 16. ambiguity: am_pm / date kinds, labels ≤32, block parity ===")
+    k3, c3 = resolve_candidates("the 12th 9", ref=ref, now=now)   # the 12th this month = Sat Sep 12 (future)
+    check("'the 12th 9' -> am_pm with AM+PM pair on Sep 12",
+          k3 == "am_pm" and len(c3) == 2, (k3, c3))
+    check("am/pm labels fit Discord buttons (≤32 chars)",
+          all(len(c.label) <= 32 for c in c3), [c.label for c in c3])
+    k4, c4 = resolve_candidates("9am", ref=ref, now=now)          # Wed 09:00 already passed (now=18:00)
+    check("'9am' with today's reading past -> date kind, 3 future days",
+          k4 == "date" and len(c4) == 3, (k4, c4))
     try:
-        build("10pm ET", "6")  # no day
-        check("time-of-day with no day should raise", False, "no exception")
-    except ValueError as e:
-        check("time-of-day with no day raises (asks for the day)",
-              "DAY" in str(e).upper() or "day" in str(e), str(e))
+        resolve_candidates("wednesday at 5pm", ref=ref, now=now)   # Wed 17:00 past & no other reading
+        got = ("no error raised", None)
+    except ValueError as exc:
+        got = ("ValueError", str(exc))
+    check("'wednesday at 5pm' (already past) -> friendly ValueError",
+          got[0] == "ValueError" and "passed" in got[1].lower(), got)
+    k5, c5 = resolve_candidates("friday at 10pm EST", ref=ref, now=now)   # THE headline case
+    check("'friday at 10pm EST' -> ok, Fri Sep 11 22:00 (golden)",
+          k5 == "ok" and c5[0].ts == GOLDEN, (k5, [c.ts for c in c5]))
+    # slot_block is build()'s tail — identical output for the same inputs.
+    blk = slot_block(GOLDEN, 4, 3600, doors_seconds=15 * 60)
+    bld = build("10pm ET", "4", day="2026-09-11", doors_lead="15", ref=ref)
+    check("slot_block == build() output (same inputs)", blk == bld, (blk, bld))
+    # Golden parity: resolve_candidates' ok kind agrees with parse_start_time.
+    for s in ("tuesday 9pm", "october 5th 8pm", "2026-11-01 9am", "Saturday the 12th 11pm EST"):
+        kx, cx = resolve_candidates(s, ref=ref, now=now)
+        check(f"resolve parity {s!r} == parse_start_time",
+              kx == "ok" and cx[0].ts == parse_start_time(s, ref=ref),
+              (kx, [c.ts for c in cx]), parse_start_time(s, ref=ref))
+
+    # start_has_date drives the day-field optionality.
+    check("start_has_date('10 PM est, friday')", start_has_date("10 PM est, friday"))
+    # start_has_date drives the day-field optionality.
+    check("start_has_date('10 PM est, friday')", start_has_date("10 PM est, friday"))
+    check("start_has_date('the 12th 9pm')", start_has_date("the 12th 9pm"))
+    check("start_has_date('10pm ET') is False", not start_has_date("10pm ET"))
+    check("start_has_date('<t:…:t>')", start_has_date("<t:1789178400:t>"))
 
     print(f"\n{'ALL PASS ✅' if failures == 0 else f'{failures} FAILURE(S) ❌'}")
     return 1 if failures else 0

@@ -12,16 +12,19 @@ accounts, no cloud, just your own Discord bot. Built to be self-hosted by
 > the *second* on a notable add (`1.9.x → 1.10.0`), and the *first* only on a
 > major overhaul. See [the Releasing & updating page in the wiki](docs/setup-and-use.md) and [`version.py`](version.py).
 >
-> **What's new in 1.11.0:** **Rich Presence now reliably shows** (fixed a
-> pipe-buffer stall that was stalling the push), a new **🔴 "Errors This
-> Session" counter** on the *Bot Process* status line, a **readable startup
-> trace** in the Activity Log (boot → config → DJ list → connect), and a
-> tighter *Bot Process* card (the **Rich Presence Toggle** sits on the
-> reset-counter line, right-aligned). 1.10.0 added the Rich Presence
-> session-uptime counter in the member list (`up: H:MM:SS · v1.10.0`), the
-> `/presence on|off` command, the dashboard switch, and the **blue + underlined**
-> footer **NWinn link**. (The 1.9.x line added the dashboard uptime timer, the
-> counter layout, log spacing, the footer link, and 3-point versioning — see the [changelog](docs/changelog.md).)
+> **What's new in 1.13.0:** **`/timeslots` now takes natural-language starts**
+> (`fri at 10pm EST`, `tonight 9`) — and when a start is ambiguous, the bot asks
+> **one quick button question** with timestamped candidates instead of guessing.
+> **`/signup` hosts can add free-form text**: extra bullets above the slot list
+> (special-guest notes, doors-close times) plus a short note on any slot line —
+> typically the DJ's name — that rides along through picks, edits and restarts.
+> 1.12.x added input hints on every command (`v1.12.4`) and the **live
+> `/signup` board** itself (one-click slots, real-time for everyone, host
+> Edit-Event). 1.11.0 fixed Rich Presence reliability, added the 🔴 "Errors
+> This Session" counter and a readable startup trace; 1.10.0 added the member-list
+> session-uptime presence (`up: H:MM:SS · v1.10.0`), `/presence on|off`, the
+> dashboard switch, and the blue + underlined footer **NWinn link**. See the
+> [changelog](docs/changelog.md) for the full history.
 
 ---
 
@@ -57,7 +60,7 @@ A small set of **slash commands** aimed at running VRChat DJ events:
 | `/dj <name>` | Look up DJs — their Twitch / VRCDN links from the master list. |
 | `/vrcdn <url or name>` | Expand any VRCDN URL into all three link versions (RTSP, MPEG-TS, preview). |
 | `/djlineup` | Label a time-slot line **A–Z** so DJs sign up by letter. |
-| `/timeslots` | Generate a full DJ time-slot block — the bot does the DST-aware math. |
+| `/timeslots` | Generate a full DJ time-slot block — DST-aware math; natural-language starts too. |
 | `/signup` | Host a live slot sign-up board — one-click slots, real-time for everyone. → [full details](docs/commands.md). |
 | `/adddj` | Suggest a new DJ for the master list (reviewed via GitHub issues). → [deep dive](docs/commands.md) |
 | `/status` / `/help` | Bot availability + version / every command listed. |

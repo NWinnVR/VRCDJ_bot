@@ -110,6 +110,33 @@ def _asg_int(rec: dict) -> dict:
     return out
 
 
+def _stored_extras(rec: dict):
+    """The host's per-slot extra text from a stored record, as {str idx: str}.
+    Old records have no key -> {} (renders exactly like before)."""
+    return {k: v for k, v in (rec.get("slot_extras") or {}).items() if v}
+
+
+def _stored_pre_extras(rec: dict):
+    """Same as `_stored_extras`, for the INLINE (pre-token) side of a slot
+    line — e.g. an inline DJ name typed before the `<t:…:t>` token."""
+    return {k: v for k, v in (rec.get("slot_pre_extras") or {}).items() if v}
+
+
+def _render_rec(rec: dict) -> str:
+    """Render the stored event's CURRENT post text — the single render path
+    used by refresh/pick/edit so host notes + slot extras survive every one.
+    Missing keys fall back to defaults, so old events (pre-notes era) still
+    render byte-identical."""
+    slots = [int(s) for s in rec.get("slot_timestamps", [])]
+    return signup.render_event(
+        rec.get("title", "Event"), slots,
+        int(rec.get("slot_seconds", 3600)), rec.get("doors_ts"),
+        _asg_int(rec),
+        notes=rec.get("notes", ""), pre_slot_notes=rec.get("pre_slot_notes", ""),
+        slot_extras=_stored_extras(rec),
+        slot_pre_extras=_stored_pre_extras(rec))
+
+
 def _guild_name(channel) -> str:
     g = getattr(channel, "guild", None)
     return (getattr(g, "name", "") or "DM") if g else "DM"
@@ -251,10 +278,7 @@ class EventView(discord.ui.View):
                     ephemeral=True)
                 return
         slots = [int(s) for s in rec.get("slot_timestamps", [])]
-        prefill_block = signup.render_event(
-            rec.get("title", "Event"), slots,
-            int(rec.get("slot_seconds", 3600)), rec.get("doors_ts"),
-            _asg_int(rec))
+        prefill_block = _render_rec(rec)
         await interaction.response.send_modal(
             SignupModal(prefill_name=rec.get("title", "Event"),
                         prefill_block=prefill_block,
@@ -499,11 +523,17 @@ def _decode_missing_perm(exc, channel) -> list:
 # ---------------------------------------------------------------------------
 async def post_new_event(channel, host_id: int, title: str, slots: list,
                          slot_seconds: int, doors_ts, max_per_slot: int,
-                         max_per_person: int) -> int:
+                         max_per_person: int, notes: str = "",
+                         pre_slot_notes: str = "",
+                         slot_extras: dict | None = None,
+                         slot_pre_extras: dict | None = None) -> int:
     """Create the public event post with [Pick Slot]+[Edit Event], register it
-    in the store, and return the message id."""
+    in the store (incl. host notes + per-slot extras), and return the message id."""
     text = signup.render_event(title, [int(s) for s in slots],
-                               int(slot_seconds), doors_ts, {})
+                               int(slot_seconds), doors_ts, {},
+                               notes=notes or "", pre_slot_notes=pre_slot_notes or "",
+                               slot_extras=slot_extras,
+                               slot_pre_extras=slot_pre_extras)
     view0 = EventView("0")
     msg = await channel.send(content=text, view=view0)
     view = EventView(str(msg.id))
@@ -513,7 +543,9 @@ async def post_new_event(channel, host_id: int, title: str, slots: list,
         str(msg.id), guild_id, str(channel.id), title,
         [int(s) for s in slots], int(slot_seconds),
         int(doors_ts) if doors_ts else None,
-        int(max_per_slot), int(max_per_person), int(host_id))
+        int(max_per_slot), int(max_per_person), int(host_id),
+        notes=notes or "", pre_slot_notes=pre_slot_notes or "",
+        slot_extras=slot_extras, slot_pre_extras=slot_pre_extras)
     # NOTE: `channel.send()` / `msg.edit()` already register the persistent
     # view keyed by msg.id for THIS session (discord.py does it internally).
     # Surviving a bot RESTART is handled in bot.on_ready, which re-adds every
@@ -532,11 +564,7 @@ async def refresh_event_post(interaction: discord.Interaction, msg_id: str):
         m = await channel.fetch_message(int(msg_id))
     except (discord.HTTPException, ValueError):
         return
-    slots = [int(s) for s in rec.get("slot_timestamps", [])]
-    text = signup.render_event(
-        rec.get("title", "Event"), slots,
-        int(rec.get("slot_seconds", 3600)), rec.get("doors_ts"),
-        _asg_int(rec))
+    text = _render_rec(rec)
     view = EventView(msg_id)
     try:
         # `Message.edit` re-registers the view keyed by msg.id automatically.
@@ -576,8 +604,26 @@ async def handle_submit(interaction: discord.Interaction, name: str,
             return
         slot_seconds = parsed["slot_seconds"] or 3600
         doors_ts = parsed["doors_ts"]
+        # Host free-form text: top bullets (notes), mid bullets (pre_slot_notes)
+        # and per-slot text on BOTH sides of each token (trailing DJ name + inline).
+        # These ride along with every render from here on.
+        notes = parsed.get("notes", "") or ""
+        pre_slot_notes = parsed.get("pre_slot_notes", "") or ""
+        slot_extras = parsed.get("slot_extras") or {}
+        slot_pre_extras = parsed.get("slot_pre_extras") or {}
         # use the modal's name field as the heading
         title = name
+        # Discord caps a message at 2000 chars — the host's extra text counts.
+        preview_len = len(signup.render_event(
+            title, slots, slot_seconds, doors_ts, {}, notes=notes,
+            pre_slot_notes=pre_slot_notes, slot_extras=slot_extras,
+            slot_pre_extras=slot_pre_extras))
+        if preview_len > 1980:
+            await interaction.response.send_message(
+                f"⚠️ That text is **{preview_len} chars** — Discord's cap is "
+                "2000.  Trim the extra bullets / slot names a little.",
+                ephemeral=True)
+            return
     except Exception as exc:
         import signup as _s  # noqa
         botlog.log("signup_submit_error", who=who, level="error",
@@ -616,7 +662,9 @@ async def handle_submit(interaction: discord.Interaction, name: str,
             result = await _apply_edit(
                 channel, msg_id, title, slots, slot_seconds, doors_ts,
                 int(rec.get("max_per_slot", signup.DEFAULT_PER_SLOT)),
-                int(rec.get("max_per_person", signup.DEFAULT_PER_PERSON)))
+                int(rec.get("max_per_person", signup.DEFAULT_PER_PERSON)),
+                notes=notes, pre_slot_notes=pre_slot_notes,
+                slot_extras=slot_extras, slot_pre_extras=slot_pre_extras)
             botlog.log("signup_edited", who=who,
                        guild=_guild_name(channel),
                        detail=(f"event {msg_id} · {len(slots)} slot(s) · "
@@ -633,7 +681,9 @@ async def handle_submit(interaction: discord.Interaction, name: str,
         else:
             msg_id2 = await post_new_event(
                 channel, host_id, title, slots, slot_seconds, doors_ts,
-                int(max_per_slot), int(max_per_person))
+                int(max_per_slot), int(max_per_person),
+                notes=notes, pre_slot_notes=pre_slot_notes,
+                slot_extras=slot_extras, slot_pre_extras=slot_pre_extras)
             botlog.log("signup_posted", who=who,
                        guild=_guild_name(channel),
                        detail=f"event msg {msg_id2} · {len(slots)} slot(s) · "
@@ -677,20 +727,22 @@ async def handle_submit(interaction: discord.Interaction, name: str,
 
 async def _apply_edit(channel, msg_id: str, title: str, slots: list,
                       slot_seconds: int, doors_ts, max_per_slot: int,
-                      max_per_person: int) -> dict:
+                      max_per_person: int, notes: str = "",
+                      pre_slot_notes: str = "",
+                      slot_extras: dict | None = None,
+                      slot_pre_extras: dict | None = None) -> dict:
     """Update an existing event: edit the store (preserving filled slots by
-    timestamp) and re-render the SAME message in place."""
+    timestamp; extras travel with their timestamps) and re-render the SAME
+    message in place — host notes + per-slot text included."""
     result = signup_store.edit_event(
         msg_id, title, slots, slot_seconds, doors_ts,
-        max_per_slot, max_per_person)
+        max_per_slot, max_per_person, notes=notes,
+        pre_slot_notes=pre_slot_notes, slot_extras=slot_extras,
+        slot_pre_extras=slot_pre_extras)
     rec = signup_store.get_event(msg_id)
     if rec is None:
         return result
-    slots_int = [int(s) for s in rec.get("slot_timestamps", [])]
-    text = signup.render_event(
-        rec.get("title", "Event"), slots_int,
-        int(rec.get("slot_seconds", 3600)), rec.get("doors_ts"),
-        _asg_int(rec))
+    text = _render_rec(rec)
     view = EventView(msg_id)
     m = await channel.fetch_message(int(msg_id))
     await m.edit(content=text, view=view)

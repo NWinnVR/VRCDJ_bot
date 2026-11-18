@@ -141,6 +141,12 @@ def _fmt_followup(chunk: str, idx: int, total: int) -> str:
     return f"{CONTINUED}  ({idx}/{total})\n\n{chunk}"
 
 
+def format_followup(chunk: str, idx: int, total: int) -> str:
+    """Public alias of `_fmt_followup` — used by timeslots_ui (button
+    callbacks deliver their slot block as follow-ups after defer())."""
+    return _fmt_followup(chunk, idx, total)
+
+
 async def send_long(interaction, content: str, limit: int = DISCORD_LIMIT) -> None:
     """Post `content` as the interaction response, chunking if needed.
 

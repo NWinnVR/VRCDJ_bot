@@ -27,7 +27,14 @@ ONE place (here), and it flows to the dashboard and the release tooling.
 # 1.12.4 — every slash command's input fields now carry a short "what goes
 #          here" hint in Discord (was the bare "…" placeholder).  Pure UX:
 #          @app_commands.describe() on each callback, all strings <100 chars.
-VERSION = "1.12.4"
+# 1.13.0 — ported the four recent WyBot fixes to the public bot:
+#           * /timeslots now takes NATURAL start times ("fri at 10pm EST",
+#             "tonight 9") and asks ONE quick button question when a start is
+#             ambiguous (new timeslots_ui clarify view).
+#           * /signup hosts can add FREE-FORM text — extra bullets above the
+#             slots + per-slot notes that ride along with each slot.
+#           * command descriptions re-synced (NL wording, all <100 chars).
+VERSION = "1.13.0"
 
 # ---- repo / release metadata (public, safe to ship) ------------------------
 # Used by the dashboard's "check for updates" and the release script.
